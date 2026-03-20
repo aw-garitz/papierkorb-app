@@ -8,7 +8,7 @@ import '../models/leerung.dart';
 class PapierkorbService {
 
   // ----------------------------------------------------------
-  // PAPIERKÖRBE LADEN — über public.papierkörbe_view
+  // PAPIERKÖRBE LADEN
   // ----------------------------------------------------------
 
   Future<List<Papierkorb>> alleAktiven() async {
@@ -23,7 +23,6 @@ class PapierkorbService {
         .toList();
   }
 
-  // Suche per QR-Code String — der einzige Weg einen Korb zu finden
   Future<Papierkorb?> perQrCode(String qrCode) async {
     final response = await supabase
         .from('papierkörbe_view')
@@ -72,7 +71,7 @@ class PapierkorbService {
   // ----------------------------------------------------------
 
   Future<Papierkorb> anlegen({
-    required String qrCode,    // z.B. "pk_0001"
+    required String qrCode,
     required int nummer,
     required int strassenId,
     String? hausnummer,
@@ -82,7 +81,6 @@ class PapierkorbService {
     File? foto,
   }) async {
     String? fotoUrl;
-
     if (foto != null) {
       fotoUrl = await fotoHochladen(foto, qrCode);
     }
@@ -101,11 +99,59 @@ class PapierkorbService {
           'foto_url':     fotoUrl,
         });
 
-    // Zurücklesen über View
     final response = await supabase
         .from('papierkörbe_view')
         .select()
         .eq('qr_code', qrCode)
+        .single();
+
+    return Papierkorb.fromJson(response);
+  }
+
+  // ----------------------------------------------------------
+  // ADMIN: PAPIERKORB AKTUALISIEREN
+  // ----------------------------------------------------------
+
+  Future<Papierkorb> aktualisieren({
+    required String id,
+    required String qrCode,
+    required int strassenId,
+    String? hausnummer,
+    String? beschreibung,
+    required double lat,
+    required double lng,
+    required String status,
+    File? neuesFoto,        // null = Foto unverändert lassen
+  }) async {
+    String? fotoUrl;
+    if (neuesFoto != null) {
+      fotoUrl = await fotoHochladen(neuesFoto, qrCode);
+    }
+
+    final updates = <String, dynamic>{
+      'strassen_id':  strassenId,
+      'hausnummer':   hausnummer,
+      'beschreibung': beschreibung,
+      'lat':          lat,
+      'lng':          lng,
+      'status':       status,
+      'geodaten_geaendert_am': DateTime.now().toIso8601String(),
+    };
+
+    if (fotoUrl != null) {
+      updates['foto_url'] = fotoUrl;
+    }
+
+    await supabase
+        .schema('waste')
+        .from('papierkörbe')
+        .update(updates)
+        .eq('id', id);
+
+    final response = await supabase
+        .from('papierkörbe_view')
+        .select()
+        .eq('id', id)
         .single();
 
     return Papierkorb.fromJson(response);
@@ -128,7 +174,7 @@ class PapierkorbService {
   }
 
   // ----------------------------------------------------------
-  // FOTO UPLOAD — Dateiname = qr_code
+  // FOTO UPLOAD
   // ----------------------------------------------------------
 
   Future<String> fotoHochladen(File foto, String qrCode) async {
@@ -143,7 +189,6 @@ class PapierkorbService {
       throw Exception('Foto-Komprimierung fehlgeschlagen');
     }
 
-    // Dateiname = qr_code, z.B. pk_0001.jpg
     final dateiname = '$qrCode.jpg';
 
     await supabase.storage

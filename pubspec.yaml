@@ -45,8 +45,20 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.1
 
 flutter:
   uses-material-design: true
   assets:
     - .env
+    - assets/icon/abfalleimer.png
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/abfalleimer.png"
+  web:
+    generate: true
+    image_path: "assets/icon/abfalleimer.png"
+    background_color: "#2D5F6E"
+    theme_color: "#2D5F6E"
