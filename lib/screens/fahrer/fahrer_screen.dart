@@ -347,8 +347,15 @@ class _FahrerScreenState extends State<FahrerScreen>
             ),
             children: [
               TileLayer(
-  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   userAgentPackageName: 'de.stadt.papierkorb_app',
+),
+Opacity(
+  opacity: 0.4,
+  child: TileLayer(
+    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    userAgentPackageName: 'de.stadt.papierkorb_app',
+  ),
 ),
               MarkerLayer(
                 markers: _alle.map((pk) {
@@ -362,8 +369,8 @@ class _FahrerScreenState extends State<FahrerScreen>
                         message: '${pk.qrCode} – ${pk.adresse}',
                         child: const Icon(
                           Icons.delete,
-                          color: Colors.green,
-                          size: 36,
+                          color: Colors.yellow,
+                          size: 30,
                           shadows: [
                             Shadow(
                               color: Colors.black45,

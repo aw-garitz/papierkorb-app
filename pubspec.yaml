@@ -14,7 +14,7 @@ dependencies:
   supabase_flutter: ^2.5.0
 
   # Karte
-  flutter_map: ^7.0.2
+  flutter_map: ^8.1.1
   latlong2: ^0.9.1
 
   # QR-Code Scanner

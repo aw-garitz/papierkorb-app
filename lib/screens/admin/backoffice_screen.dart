@@ -285,8 +285,15 @@ class _BackofficeScreenState extends State<BackofficeScreen>
       children: [
         // CartoDB Voyager — schöner, detaillierter als Standard-OSM
         TileLayer(
-  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   userAgentPackageName: 'de.stadt.papierkorb_app',
+),
+Opacity(
+  opacity: 0.4,
+  child: TileLayer(
+    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    userAgentPackageName: 'de.stadt.papierkorb_app',
+  ),
 ),
         MarkerLayer(
           markers: _alle.map((pk) {
@@ -300,8 +307,8 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                   message: '${pk.qrCode} – ${pk.adresse}',
                   child: Icon(
                     Icons.delete,
-                    size: 36,
-                    color: Colors.green.shade700,
+                    size: 34,
+                    color: Colors.yellow.shade700,
                     shadows: const [
                       Shadow(
                         color: Colors.black45,
