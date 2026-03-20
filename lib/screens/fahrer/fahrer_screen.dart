@@ -347,13 +347,9 @@ class _FahrerScreenState extends State<FahrerScreen>
             ),
             children: [
               TileLayer(
-                urlTemplate:
-                    'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-                subdomains: const ['a', 'b', 'c', 'd'],
-                userAgentPackageName: 'de.stadt.papierkorb_app',
-                maxZoom: 20,
-                retinaMode: true,
-              ),
+  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  userAgentPackageName: 'de.stadt.papierkorb_app',
+),
               MarkerLayer(
                 markers: _alle.map((pk) {
                   return Marker(
