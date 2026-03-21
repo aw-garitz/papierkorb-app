@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -30,6 +31,9 @@ class _DetailScreenState extends State<DetailScreen> {
   bool _erfolgreich = false;
   late Papierkorb _papierkorb;
 
+  // Cache-Buster für Foto nach Edit
+  String? _fotoUrlMitTimestamp;
+
   @override
   void initState() {
     super.initState();
@@ -56,14 +60,21 @@ class _DetailScreenState extends State<DetailScreen> {
       arguments: _papierkorb,
     );
     if (aktualisiert is Papierkorb) {
-      setState(() => _papierkorb = aktualisiert);
+      setState(() {
+        _papierkorb = aktualisiert;
+        // Cache-Buster damit Browser das neue Foto lädt
+        if (aktualisiert.fotoUrl != null) {
+          _fotoUrlMitTimestamp =
+              '${aktualisiert.fotoUrl!}?t=${DateTime.now().millisecondsSinceEpoch}';
+        }
+      });
     }
   }
 
-  // Leerungs-Dialog mit Foto, Bemerkung und Status
   Future<void> _zeigeLeerungsDialog() async {
     final bemerkungCtrl = TextEditingController();
     File? foto;
+    Uint8List? fotoBytes;
     String status = _papierkorb.status;
     bool dialogSpeichert = false;
 
@@ -84,11 +95,17 @@ class _DetailScreenState extends State<DetailScreen> {
                   onTap: () async {
                     final picker = ImagePicker();
                     final bild = await picker.pickImage(
-                      source: ImageSource.camera,
+                      source: kIsWeb
+                          ? ImageSource.gallery
+                          : ImageSource.camera,
                       imageQuality: 90,
                     );
                     if (bild != null) {
-                      setDialogState(() => foto = File(bild.path));
+                      final bytes = await bild.readAsBytes();
+                      setDialogState(() {
+                        fotoBytes = bytes;
+                        foto = kIsWeb ? null : File(bild.path);
+                      });
                     }
                   },
                   child: Container(
@@ -99,13 +116,14 @@ class _DetailScreenState extends State<DetailScreen> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.grey.shade300),
                     ),
-                    child: foto != null
+                    child: fotoBytes != null
                         ? Stack(
                             fit: StackFit.expand,
                             children: [
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
-                                child: Image.file(foto!, fit: BoxFit.cover),
+                                child: Image.memory(fotoBytes!,
+                                    fit: BoxFit.cover),
                               ),
                               Positioned(
                                 top: 6, right: 6,
@@ -113,10 +131,16 @@ class _DetailScreenState extends State<DetailScreen> {
                                   padding: const EdgeInsets.all(4),
                                   decoration: BoxDecoration(
                                     color: Colors.black54,
-                                    borderRadius: BorderRadius.circular(4),
+                                    borderRadius:
+                                        BorderRadius.circular(4),
                                   ),
-                                  child: const Icon(Icons.refresh,
-                                      color: Colors.white, size: 16),
+                                  child: Icon(
+                                    kIsWeb
+                                        ? Icons.upload_file
+                                        : Icons.refresh,
+                                    color: Colors.white,
+                                    size: 16,
+                                  ),
                                 ),
                               ),
                             ],
@@ -124,13 +148,22 @@ class _DetailScreenState extends State<DetailScreen> {
                         : Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.camera_alt,
-                                  size: 32, color: Colors.grey.shade400),
+                              Icon(
+                                kIsWeb
+                                    ? Icons.upload_file
+                                    : Icons.camera_alt,
+                                size: 32,
+                                color: Colors.grey.shade400,
+                              ),
                               const SizedBox(height: 6),
-                              Text('Foto aufnehmen (optional)',
-                                  style: TextStyle(
-                                      color: Colors.grey.shade500,
-                                      fontSize: 13)),
+                              Text(
+                                kIsWeb
+                                    ? 'Datei auswählen (optional)'
+                                    : 'Foto aufnehmen (optional)',
+                                style: TextStyle(
+                                    color: Colors.grey.shade500,
+                                    fontSize: 13),
+                              ),
                             ],
                           ),
                   ),
@@ -161,17 +194,17 @@ class _DetailScreenState extends State<DetailScreen> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    _statusChip('aktiv', 'Aktiv',
-                        Colors.green, status, (v) =>
-                            setDialogState(() => status = v)),
+                    _statusChip('aktiv', 'Aktiv', Colors.green,
+                        status,
+                        (v) => setDialogState(() => status = v)),
                     const SizedBox(width: 8),
-                    _statusChip('defekt', 'Defekt',
-                        Colors.orange, status, (v) =>
-                            setDialogState(() => status = v)),
+                    _statusChip('defekt', 'Defekt', Colors.orange,
+                        status,
+                        (v) => setDialogState(() => status = v)),
                     const SizedBox(width: 8),
-                    _statusChip('entfernt', 'Entfernt',
-                        Colors.red, status, (v) =>
-                            setDialogState(() => status = v)),
+                    _statusChip('entfernt', 'Entfernt', Colors.red,
+                        status,
+                        (v) => setDialogState(() => status = v)),
                   ],
                 ),
               ],
@@ -179,9 +212,8 @@ class _DetailScreenState extends State<DetailScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: dialogSpeichert
-                  ? null
-                  : () => Navigator.pop(ctx),
+              onPressed:
+                  dialogSpeichert ? null : () => Navigator.pop(ctx),
               child: const Text('Abbrechen'),
             ),
             FilledButton.icon(
@@ -189,28 +221,26 @@ class _DetailScreenState extends State<DetailScreen> {
                   ? null
                   : () async {
                       setDialogState(() => dialogSpeichert = true);
-
                       try {
                         await _service.leerungBestaetigen(
-                          papierkorbId:    _papierkorb.id,
+                          papierkorbId: _papierkorb.id,
                           papierkorbQrCode: _papierkorb.qrCode,
                           bemerkung: bemerkungCtrl.text.trim().isEmpty
                               ? null
                               : bemerkungCtrl.text.trim(),
-                          foto: foto,
-                          neuerStatus: status != _papierkorb.status
-                              ? status
-                              : null,
+                          foto:       foto,
+                          fotoBytes:  fotoBytes,
+                          neuerStatus:
+                              status != _papierkorb.status
+                                  ? status
+                                  : null,
                         );
-
                         if (!ctx.mounted) return;
                         Navigator.pop(ctx);
-
                         setState(() => _erfolgreich = true);
                         await Future.delayed(
                             const Duration(seconds: 2));
                         if (mounted) Navigator.pop(context);
-
                       } catch (e) {
                         setDialogState(
                             () => dialogSpeichert = false);
@@ -248,12 +278,17 @@ class _DetailScreenState extends State<DetailScreen> {
     return GestureDetector(
       onTap: () => onTap(wert),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: ausgewaehlt ? farbe.shade100 : Colors.grey.shade100,
+          color: ausgewaehlt
+              ? farbe.shade100
+              : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: ausgewaehlt ? farbe.shade400 : Colors.grey.shade300,
+            color: ausgewaehlt
+                ? farbe.shade400
+                : Colors.grey.shade300,
             width: ausgewaehlt ? 2 : 1,
           ),
         ),
@@ -261,8 +296,12 @@ class _DetailScreenState extends State<DetailScreen> {
           label,
           style: TextStyle(
             fontSize: 13,
-            color: ausgewaehlt ? farbe.shade800 : Colors.grey.shade600,
-            fontWeight: ausgewaehlt ? FontWeight.bold : FontWeight.normal,
+            color: ausgewaehlt
+                ? farbe.shade800
+                : Colors.grey.shade600,
+            fontWeight: ausgewaehlt
+                ? FontWeight.bold
+                : FontWeight.normal,
           ),
         ),
       ),
@@ -331,7 +370,10 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Widget _fotoWidget({double? maxHoehe}) {
-    if (_papierkorb.fotoUrl == null) {
+    // URL mit Cache-Buster falls nach Edit aktualisiert
+    final fotoUrl = _fotoUrlMitTimestamp ?? _papierkorb.fotoUrl;
+
+    if (fotoUrl == null) {
       return Container(
         height: 160,
         decoration: BoxDecoration(
@@ -367,10 +409,14 @@ class _DetailScreenState extends State<DetailScreen> {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: CachedNetworkImage(
-              imageUrl: _papierkorb.fotoUrl!,
+              imageUrl: fotoUrl,
+              // Cache-Key erzwingen wenn Timestamp gesetzt
+              cacheKey: _fotoUrlMitTimestamp != null
+                  ? 'foto_${_papierkorb.qrCode}_${DateTime.now().millisecondsSinceEpoch}'
+                  : _papierkorb.qrCode,
               fit: BoxFit.contain,
-              placeholder: (_, __) =>
-                  const Center(child: CircularProgressIndicator()),
+              placeholder: (_, __) => const Center(
+                  child: CircularProgressIndicator()),
               errorWidget: (_, __, ___) => Icon(
                   Icons.broken_image,
                   color: Colors.grey.shade400,
@@ -538,7 +584,8 @@ class _DetailScreenState extends State<DetailScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
@@ -547,8 +594,10 @@ class _DetailScreenState extends State<DetailScreen> {
                               if (l.twice) ...[
                                 const SizedBox(width: 8),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 2),
+                                  padding:
+                                      const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2),
                                   decoration: BoxDecoration(
                                     color: Colors.orange.shade100,
                                     borderRadius:
@@ -557,15 +606,16 @@ class _DetailScreenState extends State<DetailScreen> {
                                   child: Text('2×',
                                       style: TextStyle(
                                           fontSize: 11,
-                                          color:
-                                              Colors.orange.shade800)),
+                                          color: Colors
+                                              .orange.shade800)),
                                 ),
                               ],
                             ],
                           ),
                           if (l.bemerkung != null)
                             Padding(
-                              padding: const EdgeInsets.only(top: 4),
+                              padding:
+                                  const EdgeInsets.only(top: 4),
                               child: Text(
                                 l.bemerkung!,
                                 style: TextStyle(
@@ -577,9 +627,11 @@ class _DetailScreenState extends State<DetailScreen> {
                             ),
                           if (l.fotoUrl != null)
                             Padding(
-                              padding: const EdgeInsets.only(top: 6),
+                              padding:
+                                  const EdgeInsets.only(top: 6),
                               child: ClipRRect(
-                                borderRadius: BorderRadius.circular(6),
+                                borderRadius:
+                                    BorderRadius.circular(6),
                                 child: CachedNetworkImage(
                                   imageUrl: l.fotoUrl!,
                                   height: 80,
@@ -595,14 +647,15 @@ class _DetailScreenState extends State<DetailScreen> {
                 ),
               )),
 
-        // Geleert-Button — nur Fahrer (readonly=true)
+        // Geleert-Button nur Fahrer (readonly=true)
         if (widget.readonly) ...[
           const SizedBox(height: 32),
           SizedBox(
             width: double.infinity,
             height: 56,
             child: ElevatedButton.icon(
-              onPressed: _speichert ? null : _zeigeLeerungsDialog,
+              onPressed:
+                  _speichert ? null : _zeigeLeerungsDialog,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green.shade700,
                 foregroundColor: Colors.white,

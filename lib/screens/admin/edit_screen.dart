@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -21,23 +22,22 @@ class _EditScreenState extends State<EditScreen> {
   final _service = PapierkorbService();
   final _mapController = MapController();
 
-  // Formularfelder
   int? _strassenId;
   final _hausnummerCtrl = TextEditingController();
   final _beschreibungCtrl = TextEditingController();
   String _status = 'aktiv';
-  File? _neuesFoto;
 
-  // Kartenposition
+  // Foto — File für mobil, Bytes für Web
+  File? _neuesFoto;
+  Uint8List? _neuesFotoBytes;
+
   late double _lat;
   late double _lng;
 
-  // Straßenliste
   List<Map<String, dynamic>> _allStrassen = [];
   List<Map<String, dynamic>> _strassenListe = [];
   final _strassenSuchCtrl = TextEditingController();
   bool _laedtStrassen = true;
-
   bool _speichert = false;
 
   @override
@@ -90,11 +90,15 @@ class _EditScreenState extends State<EditScreen> {
   Future<void> _fotoErsetzen() async {
     final picker = ImagePicker();
     final bild = await picker.pickImage(
-      source: ImageSource.camera,
+      source: kIsWeb ? ImageSource.gallery : ImageSource.camera,
       imageQuality: 90,
     );
     if (bild == null) return;
-    setState(() => _neuesFoto = File(bild.path));
+    final bytes = await bild.readAsBytes();
+    setState(() {
+      _neuesFotoBytes = bytes;
+      _neuesFoto = kIsWeb ? null : File(bild.path);
+    });
   }
 
   Future<void> _speichern() async {
@@ -112,17 +116,18 @@ class _EditScreenState extends State<EditScreen> {
 
     try {
       final aktualisiert = await _service.aktualisieren(
-        id:           widget.papierkorb.id,
-        qrCode:       widget.papierkorb.qrCode,
-        strassenId:   _strassenId!,
-        hausnummer:   _hausnummerCtrl.text.trim().isEmpty
-                          ? null : _hausnummerCtrl.text.trim(),
-        beschreibung: _beschreibungCtrl.text.trim().isEmpty
-                          ? null : _beschreibungCtrl.text.trim(),
-        lat:          _lat,
-        lng:          _lng,
-        status:       _status,
-        neuesFoto:    _neuesFoto,
+        id:              widget.papierkorb.id,
+        qrCode:          widget.papierkorb.qrCode,
+        strassenId:      _strassenId!,
+        hausnummer:      _hausnummerCtrl.text.trim().isEmpty
+                             ? null : _hausnummerCtrl.text.trim(),
+        beschreibung:    _beschreibungCtrl.text.trim().isEmpty
+                             ? null : _beschreibungCtrl.text.trim(),
+        lat:             _lat,
+        lng:             _lng,
+        status:          _status,
+        neuesFoto:       _neuesFoto,
+        neuesFotoBytes:  _neuesFotoBytes,
       );
 
       if (!mounted) return;
@@ -134,7 +139,6 @@ class _EditScreenState extends State<EditScreen> {
         ),
       );
 
-      // Zurück zur Detailansicht mit aktualisierten Daten
       Navigator.pop(context, aktualisiert);
 
     } catch (e) {
@@ -188,13 +192,12 @@ class _EditScreenState extends State<EditScreen> {
   }
 
   // ----------------------------------------------------------
-  // WEB: zweigeteilt — links Formular, rechts Karte
+  // WEB: zweigeteilt
   // ----------------------------------------------------------
   Widget _webLayout() {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Linke Spalte: Formular
         SizedBox(
           width: 420,
           child: SingleChildScrollView(
@@ -202,15 +205,11 @@ class _EditScreenState extends State<EditScreen> {
             child: _formular(),
           ),
         ),
-
         const VerticalDivider(width: 1),
-
-        // Rechte Spalte: Karte
         Expanded(
           child: Stack(
             children: [
               _karte(),
-              // Hinweis oben
               Positioned(
                 top: 12,
                 left: 0,
@@ -225,13 +224,11 @@ class _EditScreenState extends State<EditScreen> {
                     ),
                     child: const Text(
                       'Auf Karte tippen um Marker zu verschieben',
-                      style: TextStyle(
-                          color: Colors.white, fontSize: 13),
+                      style: TextStyle(color: Colors.white, fontSize: 13),
                     ),
                   ),
                 ),
               ),
-              // Koordinaten unten
               Positioned(
                 bottom: 12,
                 left: 0,
@@ -263,7 +260,7 @@ class _EditScreenState extends State<EditScreen> {
   }
 
   // ----------------------------------------------------------
-  // MOBIL: Formular + Karte untereinander
+  // MOBIL
   // ----------------------------------------------------------
   Widget _mobilLayout() {
     return SingleChildScrollView(
@@ -273,8 +270,6 @@ class _EditScreenState extends State<EditScreen> {
         children: [
           _formular(),
           const SizedBox(height: 24),
-
-          // Karte
           Text('Position',
               style: TextStyle(
                   fontSize: 13,
@@ -293,9 +288,7 @@ class _EditScreenState extends State<EditScreen> {
                 children: [
                   _karte(),
                   Positioned(
-                    top: 8,
-                    left: 0,
-                    right: 0,
+                    top: 8, left: 0, right: 0,
                     child: Center(
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -304,18 +297,14 @@ class _EditScreenState extends State<EditScreen> {
                           color: Colors.black54,
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        child: const Text(
-                          'Tippen zum Verschieben',
-                          style: TextStyle(
-                              color: Colors.white, fontSize: 12),
-                        ),
+                        child: const Text('Tippen zum Verschieben',
+                            style: TextStyle(
+                                color: Colors.white, fontSize: 12)),
                       ),
                     ),
                   ),
                   Positioned(
-                    bottom: 8,
-                    left: 0,
-                    right: 0,
+                    bottom: 8, left: 0, right: 0,
                     child: Center(
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -339,9 +328,7 @@ class _EditScreenState extends State<EditScreen> {
               ),
             ),
           ),
-
           const SizedBox(height: 32),
-
           SizedBox(
             width: double.infinity,
             height: 52,
@@ -396,12 +383,12 @@ class _EditScreenState extends State<EditScreen> {
           userAgentPackageName: 'de.stadt.papierkorb_app',
         ),
         Opacity(
-  opacity: 0.4,
-  child: TileLayer(
-    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    userAgentPackageName: 'de.stadt.papierkorb_app',
-  ),
-),
+          opacity: 0.4,
+          child: TileLayer(
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'de.stadt.papierkorb_app',
+          ),
+        ),
         MarkerLayer(
           markers: [
             Marker(
@@ -428,18 +415,16 @@ class _EditScreenState extends State<EditScreen> {
   }
 
   // ----------------------------------------------------------
-  // FORMULAR (geteilt zwischen Web und Mobil)
+  // FORMULAR
   // ----------------------------------------------------------
   Widget _formular() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
 
-        // Foto
         _fotoBereich(),
         const SizedBox(height: 20),
 
-        // Straße
         Text('Straße *',
             style: TextStyle(
                 fontSize: 13,
@@ -449,7 +434,6 @@ class _EditScreenState extends State<EditScreen> {
         _strassenAuswahl(),
         const SizedBox(height: 16),
 
-        // Hausnummer
         TextFormField(
           controller: _hausnummerCtrl,
           decoration: const InputDecoration(
@@ -460,7 +444,6 @@ class _EditScreenState extends State<EditScreen> {
         ),
         const SizedBox(height: 16),
 
-        // Beschreibung
         TextFormField(
           controller: _beschreibungCtrl,
           decoration: const InputDecoration(
@@ -472,9 +455,8 @@ class _EditScreenState extends State<EditScreen> {
         ),
         const SizedBox(height: 16),
 
-        // Status
         DropdownButtonFormField<String>(
-          value: _status,
+          initialValue: _status,
           decoration: const InputDecoration(
             labelText: 'Status',
             border: OutlineInputBorder(),
@@ -483,8 +465,7 @@ class _EditScreenState extends State<EditScreen> {
           items: const [
             DropdownMenuItem(value: 'aktiv', child: Text('Aktiv')),
             DropdownMenuItem(value: 'defekt', child: Text('Defekt')),
-            DropdownMenuItem(
-                value: 'entfernt', child: Text('Entfernt')),
+            DropdownMenuItem(value: 'entfernt', child: Text('Entfernt')),
           ],
           onChanged: (v) => setState(() => _status = v!),
         ),
@@ -493,6 +474,77 @@ class _EditScreenState extends State<EditScreen> {
   }
 
   Widget _fotoBereich() {
+    // Vorschau-Widget abhängig von Plattform und ob neues Foto gewählt
+    Widget vorschau;
+
+    if (_neuesFotoBytes != null) {
+      // Neues Foto gewählt — Bytes anzeigen (funktioniert Web + Mobil)
+      vorschau = Stack(
+        fit: StackFit.expand,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Image.memory(_neuesFotoBytes!, fit: BoxFit.cover),
+          ),
+          Positioned(
+            top: 8, right: 8,
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Icon(Icons.refresh, color: Colors.white, size: 18),
+            ),
+          ),
+        ],
+      );
+    } else if (widget.papierkorb.fotoUrl != null) {
+      // Bestehendes Foto vom Server
+      vorschau = Stack(
+        fit: StackFit.expand,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: CachedNetworkImage(
+              imageUrl: widget.papierkorb.fotoUrl!,
+              fit: BoxFit.cover,
+            ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.black38,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(kIsWeb ? Icons.upload_file : Icons.camera_alt,
+                      color: Colors.white, size: 28),
+                  const SizedBox(height: 4),
+                  Text(kIsWeb ? 'Datei auswählen' : 'Foto ersetzen',
+                      style: const TextStyle(color: Colors.white, fontSize: 12)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    } else {
+      // Kein Foto vorhanden
+      vorschau = Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(kIsWeb ? Icons.upload_file : Icons.camera_alt,
+              size: 32, color: Colors.grey.shade400),
+          const SizedBox(height: 8),
+          Text(kIsWeb ? 'Datei auswählen' : 'Foto aufnehmen',
+              style: TextStyle(color: Colors.grey.shade500)),
+        ],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -511,73 +563,7 @@ class _EditScreenState extends State<EditScreen> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.grey.shade300),
             ),
-            child: _neuesFoto != null
-                ? Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.file(_neuesFoto!,
-                            fit: BoxFit.cover),
-                      ),
-                      Positioned(
-                        top: 8, right: 8,
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: Colors.black54,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Icon(Icons.refresh,
-                              color: Colors.white, size: 18),
-                        ),
-                      ),
-                    ],
-                  )
-                : widget.papierkorb.fotoUrl != null
-                    ? Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: CachedNetworkImage(
-                              imageUrl: widget.papierkorb.fotoUrl!,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.black38,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.camera_alt,
-                                      color: Colors.white, size: 28),
-                                  SizedBox(height: 4),
-                                  Text('Foto ersetzen',
-                                      style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 12)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      )
-                    : Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.camera_alt,
-                              size: 32, color: Colors.grey.shade400),
-                          const SizedBox(height: 8),
-                          Text('Foto aufnehmen',
-                              style: TextStyle(
-                                  color: Colors.grey.shade500)),
-                        ],
-                      ),
+            child: vorschau,
           ),
         ),
       ],
@@ -642,8 +628,7 @@ class _EditScreenState extends State<EditScreen> {
                     ),
                   ),
                   TextButton(
-                    onPressed: () =>
-                        setState(() => _strassenId = null),
+                    onPressed: () => setState(() => _strassenId = null),
                     style: TextButton.styleFrom(
                         padding: EdgeInsets.zero,
                         minimumSize: const Size(40, 24)),
@@ -658,8 +643,7 @@ class _EditScreenState extends State<EditScreen> {
             child: _strassenListe.isEmpty
                 ? Center(
                     child: Text('Keine Treffer',
-                        style:
-                            TextStyle(color: Colors.grey.shade500)))
+                        style: TextStyle(color: Colors.grey.shade500)))
                 : ListView.builder(
                     itemCount: _strassenListe.length,
                     itemBuilder: (_, i) {
@@ -672,16 +656,14 @@ class _EditScreenState extends State<EditScreen> {
                         title: Text(s['name'] as String),
                         subtitle: s['stadtteil'] != null
                             ? Text(s['stadtteil'] as String,
-                                style:
-                                    const TextStyle(fontSize: 11))
+                                style: const TextStyle(fontSize: 11))
                             : null,
                         trailing: istAusgewaehlt
                             ? Icon(Icons.check,
-                                color: Colors.green.shade600,
-                                size: 18)
+                                color: Colors.green.shade600, size: 18)
                             : null,
-                        onTap: () => setState(
-                            () => _strassenId = s['id'] as int),
+                        onTap: () =>
+                            setState(() => _strassenId = s['id'] as int),
                       );
                     },
                   ),

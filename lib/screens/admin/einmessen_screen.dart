@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
@@ -16,14 +18,17 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
   final _service = PapierkorbService();
   final _formKey = GlobalKey<FormState>();
 
-  String? _qrCode;     // z.B. "pk_0001"
-  int? _nummer;        // extrahierte Zahl für DB
+  String? _qrCode;
+  int? _nummer;
   int? _strassenId;
   final _hausnummerCtrl = TextEditingController();
   final _beschreibungCtrl = TextEditingController();
   double? _lat;
   double? _lng;
+
+  // Foto — File für mobil, Bytes für Web
   File? _foto;
+  Uint8List? _fotoBytes;
 
   bool _laedt = false;
   bool _laedtStrassen = true;
@@ -84,7 +89,6 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
     setState(() => _scanlaeuft = false);
     if (result == null) return;
 
-    // Format prüfen: pk_0001
     final regex = RegExp(r'^pk_(\d{4})$');
     final match = regex.firstMatch(result);
     if (match == null) {
@@ -98,18 +102,33 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
       return;
     }
 
-    // Prüfen ob QR-Code bereits vergeben
     final vorhanden = await _service.perQrCode(result);
     if (!mounted) return;
-    if (vorhanden != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$result bereits erfasst!'),
-          backgroundColor: Colors.orange.shade700,
+   if (vorhanden != null) {
+  if (!mounted) return;
+  final weiter = await showDialog<bool>(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: Text('$result bereits erfasst'),
+      content: const Text(
+          'Dieser QR-Code existiert bereits. Möchtest du den bestehenden Eintrag bearbeiten?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Abbrechen'),
         ),
-      );
-      return;
-    }
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Bearbeiten'),
+        ),
+      ],
+    ),
+  );
+  if (weiter == true && mounted) {
+    Navigator.pushNamed(context, '/edit', arguments: vorhanden);
+  }
+  return;
+}
 
     setState(() {
       _qrCode = result;
@@ -137,14 +156,20 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
 
     final picker = ImagePicker();
     final bild = await picker.pickImage(
-      source: ImageSource.camera,
+      source: kIsWeb ? ImageSource.gallery : ImageSource.camera,
       imageQuality: 90,
     );
     if (bild == null) return;
 
-    setState(() => _gpsLaedt = true);
-    final position = await _holeGps();
-    setState(() => _gpsLaedt = false);
+    final bytes = await bild.readAsBytes();
+
+    // GPS nur auf Mobil
+    Position? position;
+    if (!kIsWeb) {
+      setState(() => _gpsLaedt = true);
+      position = await _holeGps();
+      setState(() => _gpsLaedt = false);
+    }
 
     if (!mounted) return;
 
@@ -183,7 +208,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                 ),
                 textAlign: TextAlign.center,
               ),
-            ] else ...[
+            ] else if (!kIsWeb) ...[
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -191,17 +216,18 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                       size: 16, color: Colors.orange.shade700),
                   const SizedBox(width: 4),
                   Text('GPS nicht verfügbar',
-                      style:
-                          TextStyle(color: Colors.orange.shade700)),
+                      style: TextStyle(color: Colors.orange.shade700)),
                 ],
               ),
               const SizedBox(height: 4),
               Text(
                 'Koordinaten können später im\nBackoffice korrigiert werden',
-                style: TextStyle(
-                    fontSize: 12, color: Colors.grey.shade500),
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                 textAlign: TextAlign.center,
               ),
+            ] else ...[
+              Text('Datei ausgewählt',
+                  style: TextStyle(color: Colors.green.shade700)),
             ],
           ],
         ),
@@ -225,6 +251,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
     if (ok != true) {
       setState(() {
         _foto = null;
+        _fotoBytes = null;
         _lat = null;
         _lng = null;
       });
@@ -232,7 +259,8 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
     }
 
     setState(() {
-      _foto = File(bild.path);
+      _fotoBytes = bytes;
+      _foto = kIsWeb ? null : File(bild.path);
       if (position != null) {
         _lat = position.latitude;
         _lng = position.longitude;
@@ -248,6 +276,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
       _qrCode = null;
       _nummer = null;
       _foto = null;
+      _fotoBytes = null;
       _lat = null;
       _lng = null;
       _strassenId = null;
@@ -275,7 +304,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
       );
       return;
     }
-    if (_foto == null) {
+    if (_fotoBytes == null && _foto == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Bitte zuerst ein Foto aufnehmen'),
@@ -296,9 +325,10 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                           ? null : _hausnummerCtrl.text.trim(),
         beschreibung: _beschreibungCtrl.text.trim().isEmpty
                           ? null : _beschreibungCtrl.text.trim(),
-        lat:  _lat ?? 0.0,
-        lng:  _lng ?? 0.0,
-        foto: _foto,
+        lat:          _lat ?? 0.0,
+        lng:          _lng ?? 0.0,
+        foto:         _foto,
+        fotoBytes:    _fotoBytes,
       );
 
       if (!mounted) return;
@@ -338,77 +368,80 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
 
-                  // SCHRITT 1: QR-Code scannen
-                  _schrittHeader('1', 'QR-Code scannen', _qrCode != null),
-                  const SizedBox(height: 12),
-
-                  if (_qrCode == null)
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: OutlinedButton.icon(
-                        onPressed: _scanlaeuft ? null : _qrScannen,
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(
-                              color: Colors.green.shade400, width: 2),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
+                  // SCHRITT 1: QR-Code scannen (nur mobil)
+                  if (!kIsWeb) ...[
+                    _schrittHeader('1', 'QR-Code scannen', _qrCode != null),
+                    const SizedBox(height: 12),
+                    if (_qrCode == null)
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: OutlinedButton.icon(
+                          onPressed: _scanlaeuft ? null : _qrScannen,
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(
+                                color: Colors.green.shade400, width: 2),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                          icon: _scanlaeuft
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2),
+                                )
+                              : const Icon(Icons.qr_code_scanner),
+                          label: const Text('QR-Code scannen',
+                              style: TextStyle(fontSize: 16)),
                         ),
-                        icon: _scanlaeuft
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2),
-                              )
-                            : const Icon(Icons.qr_code_scanner),
-                        label: const Text('QR-Code scannen',
-                            style: TextStyle(fontSize: 16)),
-                      ),
-                    )
-                  else
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.green.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.green.shade300),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.check_circle,
-                              color: Colors.green.shade700, size: 24),
-                          const SizedBox(width: 12),
-                          Text(
-                            _qrCode!,
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green.shade800,
-                              fontFamily: 'monospace',
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.green.shade300),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.check_circle,
+                                color: Colors.green.shade700, size: 24),
+                            const SizedBox(width: 12),
+                            Text(
+                              _qrCode!,
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green.shade800,
+                                fontFamily: 'monospace',
+                              ),
                             ),
-                          ),
-                          const Spacer(),
-                          TextButton(
-                            onPressed: () => setState(() {
-                              _qrCode = null;
-                              _nummer = null;
-                              _foto = null;
-                              _lat = null;
-                              _lng = null;
-                            }),
-                            child: const Text('Ändern'),
-                          ),
-                        ],
+                            const Spacer(),
+                            TextButton(
+                              onPressed: () => setState(() {
+                                _qrCode = null;
+                                _nummer = null;
+                                _foto = null;
+                                _fotoBytes = null;
+                                _lat = null;
+                                _lng = null;
+                              }),
+                              child: const Text('Ändern'),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-
-                  const SizedBox(height: 24),
+                    const SizedBox(height: 24),
+                  ],
 
                   // SCHRITT 2: Straße
-                  _schrittHeader('2', 'Straße auswählen', _strassenId != null),
+                  _schrittHeader(
+                      kIsWeb ? '1' : '2',
+                      'Straße auswählen',
+                      _strassenId != null),
                   const SizedBox(height: 12),
-
                   if (_laedtStrassen)
                     const LinearProgressIndicator()
                   else
@@ -417,7 +450,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                   const SizedBox(height: 24),
 
                   // SCHRITT 3: Details
-                  _schrittHeader('3', 'Details (optional)', false),
+                  _schrittHeader(kIsWeb ? '2' : '3', 'Details (optional)', false),
                   const SizedBox(height: 12),
 
                   TextFormField(
@@ -429,9 +462,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                     ),
                     keyboardType: TextInputType.streetAddress,
                   ),
-
                   const SizedBox(height: 12),
-
                   TextFormField(
                     controller: _beschreibungCtrl,
                     decoration: const InputDecoration(
@@ -446,32 +477,37 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                   const SizedBox(height: 24),
 
                   // SCHRITT 4: Foto
-                  _schrittHeader('4', 'Foto aufnehmen', _foto != null),
+                  _schrittHeader(
+                      kIsWeb ? '3' : '4',
+                      kIsWeb ? 'Foto auswählen' : 'Foto aufnehmen',
+                      _fotoBytes != null || _foto != null),
                   const SizedBox(height: 12),
 
                   GestureDetector(
-                    onTap: _qrCode == null ? null : _fotoAufnehmen,
+                    onTap: (kIsWeb || _qrCode != null)
+                        ? _fotoAufnehmen
+                        : null,
                     child: Container(
                       height: 180,
                       decoration: BoxDecoration(
-                        color: _qrCode == null
+                        color: (!kIsWeb && _qrCode == null)
                             ? Colors.grey.shade200
                             : Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: Colors.grey.shade300),
                       ),
-                      child: _foto != null
+                      child: _fotoBytes != null
                           ? Stack(
                               fit: StackFit.expand,
                               children: [
                                 ClipRRect(
                                   borderRadius: BorderRadius.circular(12),
-                                  child: Image.file(_foto!, fit: BoxFit.cover),
+                                  child: Image.memory(_fotoBytes!,
+                                      fit: BoxFit.cover),
                                 ),
                                 if (_lat != null)
                                   Positioned(
-                                    bottom: 8,
-                                    left: 8,
+                                    bottom: 8, left: 8,
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 8, vertical: 4),
@@ -490,19 +526,20 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                                     ),
                                   ),
                                 Positioned(
-                                  top: 8,
-                                  right: 8,
-                                  child: GestureDetector(
-                                    onTap: _fotoAufnehmen,
-                                    child: Container(
-                                      padding: const EdgeInsets.all(6),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black54,
-                                        borderRadius:
-                                            BorderRadius.circular(6),
-                                      ),
-                                      child: const Icon(Icons.refresh,
-                                          color: Colors.white, size: 18),
+                                  top: 8, right: 8,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black54,
+                                      borderRadius:
+                                          BorderRadius.circular(6),
+                                    ),
+                                    child: Icon(
+                                      kIsWeb
+                                          ? Icons.upload_file
+                                          : Icons.refresh,
+                                      color: Colors.white,
+                                      size: 18,
                                     ),
                                   ),
                                 ),
@@ -512,26 +549,32 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Icon(
-                                  Icons.camera_alt,
+                                  kIsWeb
+                                      ? Icons.upload_file
+                                      : Icons.camera_alt,
                                   size: 40,
-                                  color: _qrCode == null
+                                  color: (!kIsWeb && _qrCode == null)
                                       ? Colors.grey.shade300
                                       : Colors.grey.shade400,
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  _qrCode == null
+                                  (!kIsWeb && _qrCode == null)
                                       ? 'Zuerst QR-Code scannen'
-                                      : 'Foto aufnehmen',
+                                      : kIsWeb
+                                          ? 'Datei auswählen'
+                                          : 'Foto aufnehmen',
                                   style: TextStyle(
-                                    color: _qrCode == null
+                                    color: (!kIsWeb && _qrCode == null)
                                         ? Colors.grey.shade400
                                         : Colors.grey.shade500,
                                   ),
                                 ),
-                                if (_qrCode != null)
+                                if (kIsWeb || _qrCode != null)
                                   Text(
-                                    'GPS wird automatisch erfasst',
+                                    kIsWeb
+                                        ? 'JPG, PNG unterstützt'
+                                        : 'GPS wird automatisch erfasst',
                                     style: TextStyle(
                                         color: Colors.grey.shade400,
                                         fontSize: 12),
@@ -564,15 +607,12 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                             )
                           : const Icon(Icons.save),
                       label: Text(
-                        _laedt
-                            ? 'Wird gespeichert...'
-                            : 'Papierkorb speichern',
+                        _laedt ? 'Wird gespeichert...' : 'Papierkorb speichern',
                         style: const TextStyle(
                             fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 24),
                 ],
               ),
@@ -598,11 +638,9 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                       const SizedBox(height: 16),
                       const Text('GPS wird ermittelt...'),
                       const SizedBox(height: 4),
-                      Text(
-                        'Max. 10 Sekunden',
-                        style: TextStyle(
-                            fontSize: 12, color: Colors.grey.shade500),
-                      ),
+                      Text('Max. 10 Sekunden',
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.grey.shade500)),
                     ],
                   ),
                 ),
@@ -628,21 +666,17 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
           child: Center(
             child: erledigt
                 ? const Icon(Icons.check, color: Colors.white, size: 16)
-                : Text(
-                    nr,
+                : Text(nr,
                     style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
-                        color: Colors.grey.shade700),
-                  ),
+                        color: Colors.grey.shade700)),
           ),
         ),
         const SizedBox(width: 10),
-        Text(
-          titel,
-          style: const TextStyle(
-              fontSize: 16, fontWeight: FontWeight.w600),
-        ),
+        Text(titel,
+            style: const TextStyle(
+                fontSize: 16, fontWeight: FontWeight.w600)),
       ],
     );
   }
@@ -679,7 +713,6 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
               ),
             ),
           ),
-
           if (_strassenId != null)
             Container(
               margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
@@ -715,14 +748,12 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                 ],
               ),
             ),
-
           SizedBox(
             height: 200,
             child: _strassenListe.isEmpty
                 ? Center(
                     child: Text('Keine Treffer',
-                        style:
-                            TextStyle(color: Colors.grey.shade500)))
+                        style: TextStyle(color: Colors.grey.shade500)))
                 : ListView.builder(
                     itemCount: _strassenListe.length,
                     itemBuilder: (_, i) {
@@ -754,7 +785,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
 }
 
 // ----------------------------------------------------------
-// QR-Scanner Dialog
+// QR-Scanner Dialog (nur mobil)
 // ----------------------------------------------------------
 class _QrScannerDialog extends StatefulWidget {
   const _QrScannerDialog();
@@ -820,7 +851,7 @@ class _QrScannerDialogState extends State<_QrScannerDialog> {
               'QR-Code-Aufkleber scannen',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: Colors.white.withOpacity(0.8),
+                color: Colors.white.withValues(alpha: 0.8),
                 fontSize: 16,
               ),
             ),

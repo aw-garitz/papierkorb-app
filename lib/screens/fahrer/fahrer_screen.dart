@@ -125,10 +125,10 @@ class _FahrerScreenState extends State<FahrerScreen>
       }
 
       await Navigator.pushNamed(
-        context,
-        '/fahrer/detail',
-        arguments: papierkorb,
-      );
+  context,
+  '/fahrer/detail',
+  arguments: {'papierkorb': papierkorb, 'readonly': true},
+);
 
       await _scannerController.start();
       setState(() => _verarbeitung = false);

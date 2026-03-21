@@ -4,6 +4,7 @@ import 'package:latlong2/latlong.dart';
 import '../../models/papierkorb.dart';
 import '../../services/papierkorb_service.dart';
 import 'qr_generator_screen.dart';
+import 'meldungen_screen.dart';
 
 class BackofficeScreen extends StatefulWidget {
   const BackofficeScreen({super.key});
@@ -22,14 +23,22 @@ class _BackofficeScreenState extends State<BackofficeScreen>
   List<Papierkorb> _alle = [];
   List<Papierkorb> _gefiltert = [];
   bool _laedt = true;
+  int _meldungsAnzahl = 0;
 
   @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-    _suchCtrl.addListener(_filtern);
-    _laden();
-  }
+  @override
+void initState() {
+  super.initState();
+  _tabController = TabController(length: 4, vsync: this);  // ← zuerst!
+  _tabController.addListener(() {
+    if (!_tabController.indexIsChanging &&
+        _tabController.previousIndex == 3) {
+      _laden();
+    }
+  });
+  _suchCtrl.addListener(_filtern);
+  _laden();
+}
 
   @override
   void dispose() {
@@ -41,9 +50,11 @@ class _BackofficeScreenState extends State<BackofficeScreen>
   Future<void> _laden() async {
     try {
       final liste = await _service.alleAktiven();
+      final meldungen = await _service.meldungen();
       setState(() {
         _alle = liste;
         _gefiltert = liste;
+        _meldungsAnzahl = meldungen.length;
         _laedt = false;
       });
     } catch (e) {
@@ -55,21 +66,21 @@ class _BackofficeScreenState extends State<BackofficeScreen>
     }
   }
 
-void _filtern() {
-  final suche = _suchCtrl.text.toLowerCase();
-  setState(() {
-    _gefiltert = suche.isEmpty
-        ? _alle
-        : _alle.where((pk) {
-            final strasse = (pk.strasseName ?? '').toLowerCase();
-            final beschreibung = (pk.beschreibung ?? '').toLowerCase();
-            final qrCode = pk.qrCode.toLowerCase();
-            return strasse.contains(suche) ||
-                   beschreibung.contains(suche) ||
-                   qrCode.contains(suche);
-          }).toList();
-  });
-}
+  void _filtern() {
+    final suche = _suchCtrl.text.toLowerCase();
+    setState(() {
+      _gefiltert = suche.isEmpty
+          ? _alle
+          : _alle.where((pk) {
+              final strasse = (pk.strasseName ?? '').toLowerCase();
+              final beschreibung = (pk.beschreibung ?? '').toLowerCase();
+              final qrCode = pk.qrCode.toLowerCase();
+              return strasse.contains(suche) ||
+                  beschreibung.contains(suche) ||
+                  qrCode.contains(suche);
+            }).toList();
+    });
+  }
 
   void _zoomAufMarker(Papierkorb pk) {
     _tabController.animateTo(1);
@@ -82,7 +93,7 @@ void _filtern() {
     Navigator.pushNamed(
       context,
       '/fahrer/detail',
-      arguments: {'papierkorb': pk, 'readonly': true},
+      arguments: {'papierkorb': pk, 'readonly': false},
     );
   }
 
@@ -170,10 +181,39 @@ void _filtern() {
         ],
         bottom: TabBar(
           controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.list), text: 'Liste'),
-            Tab(icon: Icon(Icons.map_outlined), text: 'Karte'),
-            Tab(icon: Icon(Icons.qr_code), text: 'QR-Codes'),
+          tabs: [
+            const Tab(icon: Icon(Icons.list), text: 'Liste'),
+            const Tab(icon: Icon(Icons.map_outlined), text: 'Karte'),
+            const Tab(icon: Icon(Icons.qr_code), text: 'QR-Codes'),
+            Tab(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.warning_amber_outlined, size: 18),
+                  const SizedBox(width: 4),
+                  const Text('Meldungen'),
+                  if (_meldungsAnzahl > 0) ...[
+                    const SizedBox(width: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '$_meldungsAnzahl',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -185,6 +225,7 @@ void _filtern() {
                 _buildListe(),
                 _buildKarte(),
                 const QrGeneratorScreen(),
+                const MeldungenScreen(),
               ],
             ),
     );
@@ -245,11 +286,19 @@ void _filtern() {
                     final pk = _gefiltert[i];
                     return ListTile(
                       leading: CircleAvatar(
-                        backgroundColor: Colors.green.shade100,
+                        backgroundColor: pk.status == 'aktiv'
+                            ? Colors.green.shade100
+                            : pk.status == 'defekt'
+                                ? Colors.orange.shade100
+                                : Colors.red.shade100,
                         child: Text(
                           '${pk.nummer}',
                           style: TextStyle(
-                            color: Colors.green.shade800,
+                            color: pk.status == 'aktiv'
+                                ? Colors.green.shade800
+                                : pk.status == 'defekt'
+                                    ? Colors.orange.shade800
+                                    : Colors.red.shade800,
                             fontWeight: FontWeight.bold,
                             fontSize: 13,
                           ),
@@ -286,18 +335,19 @@ void _filtern() {
         onLongPress: _onKarteLongPress,
       ),
       children: [
-        // CartoDB Voyager — schöner, detaillierter als Standard-OSM
         TileLayer(
-  urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-  userAgentPackageName: 'de.stadt.papierkorb_app',
-),
-Opacity(
-  opacity: 0.4,
-  child: TileLayer(
-    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    userAgentPackageName: 'de.stadt.papierkorb_app',
-  ),
-),
+          urlTemplate:
+              'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+          userAgentPackageName: 'de.stadt.papierkorb_app',
+        ),
+        Opacity(
+          opacity: 0.4,
+          child: TileLayer(
+            urlTemplate:
+                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'de.stadt.papierkorb_app',
+          ),
+        ),
         MarkerLayer(
           markers: _alle.map((pk) {
             return Marker(
@@ -310,8 +360,12 @@ Opacity(
                   message: '${pk.qrCode} – ${pk.adresse}',
                   child: Icon(
                     Icons.delete,
-                    size: 34,
-                    color: Colors.yellow.shade700,
+                    size: 36,
+                    color: pk.status == 'aktiv'
+                        ? Colors.orange
+                        : pk.status == 'defekt'
+                            ? Colors.red
+                            : Colors.grey,
                     shadows: const [
                       Shadow(
                         color: Colors.black45,

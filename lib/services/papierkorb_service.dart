@@ -54,22 +54,26 @@ class PapierkorbService {
         .toList();
   }
 
-  // Leerung bestätigen mit optionalem Foto, Bemerkung und Status
   Future<void> leerungBestaetigen({
     required String papierkorbId,
+    required String papierkorbQrCode,
     String? bemerkung,
     File? foto,
-    String? neuerStatus,  // null = Status unverändert
-    required String papierkorbQrCode,
+    Uint8List? fotoBytes,
+    String? neuerStatus,
   }) async {
     String? fotoUrl;
 
-    // Foto hochladen falls vorhanden
-    if (foto != null) {
-      fotoUrl = await leerungFotoHochladen(foto, papierkorbQrCode);
+    if (fotoBytes != null) {
+      fotoUrl = await _uploadBytes(
+        fotoBytes,
+        'leerungen/${papierkorbQrCode}_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+    } else if (foto != null) {
+      fotoUrl = await _uploadFile(foto,
+          'leerungen/${papierkorbQrCode}_${DateTime.now().millisecondsSinceEpoch}.jpg');
     }
 
-    // Leerung speichern
     await supabase
         .schema('waste')
         .from('leerungen')
@@ -79,7 +83,6 @@ class PapierkorbService {
           'foto_url':      fotoUrl,
         });
 
-    // Status aktualisieren falls geändert
     if (neuerStatus != null) {
       await supabase
           .schema('waste')
@@ -89,37 +92,40 @@ class PapierkorbService {
     }
   }
 
-  // Foto für Leerung hochladen
-  Future<String> leerungFotoHochladen(File foto, String qrCode) async {
-    final komprimiert = await FlutterImageCompress.compressWithFile(
-      foto.absolute.path,
-      quality: 55,
-      minWidth: 800,
-      minHeight: 800,
-    );
+  // ----------------------------------------------------------
+  // MELDUNGEN
+  // ----------------------------------------------------------
 
-    if (komprimiert == null) {
-      throw Exception('Foto-Komprimierung fehlgeschlagen');
+  Future<List<Map<String, dynamic>>> meldungen() async {
+    final response = await supabase
+        .from('meldungen_view')
+        .select();
+
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  // Meldung erledigen:
+  // - leerung.meldung_erledigt = true
+  // - papierkörbe.status = 'aktiv'
+  Future<void> meldungErledigen({
+    required String typ,         // 'leerung' oder 'status'
+    required String id,          // leerung.id oder papierkorb.id
+    required String papierkorbId,
+  }) async {
+    if (typ == 'leerung') {
+      await supabase
+          .schema('waste')
+          .from('leerungen')
+          .update({'meldung_erledigt': true})
+          .eq('id', id);
     }
 
-    // Dateiname: qrCode + Timestamp damit mehrere Fotos möglich
-    final ts = DateTime.now().millisecondsSinceEpoch;
-    final dateiname = 'leerungen/${qrCode}_$ts.jpg';
-
-    await supabase.storage
-        .from('papierkorb-fotos')
-        .uploadBinary(
-          dateiname,
-          komprimiert,
-          fileOptions: const FileOptions(
-            contentType: 'image/jpeg',
-            upsert: false,
-          ),
-        );
-
-    return supabase.storage
-        .from('papierkorb-fotos')
-        .getPublicUrl(dateiname);
+    // Status immer auf aktiv setzen
+    await supabase
+        .schema('waste')
+        .from('papierkörbe')
+        .update({'status': 'aktiv'})
+        .eq('id', papierkorbId);
   }
 
   // ----------------------------------------------------------
@@ -135,9 +141,12 @@ class PapierkorbService {
     required double lat,
     required double lng,
     File? foto,
+    Uint8List? fotoBytes,
   }) async {
     String? fotoUrl;
-    if (foto != null) {
+    if (fotoBytes != null) {
+      fotoUrl = await _uploadBytes(fotoBytes, '$qrCode.jpg');
+    } else if (foto != null) {
       fotoUrl = await fotoHochladen(foto, qrCode);
     }
 
@@ -178,9 +187,12 @@ class PapierkorbService {
     required double lng,
     required String status,
     File? neuesFoto,
+    Uint8List? neuesFotoBytes,
   }) async {
     String? fotoUrl;
-    if (neuesFoto != null) {
+    if (neuesFotoBytes != null) {
+      fotoUrl = await _uploadBytes(neuesFotoBytes, '$qrCode.jpg');
+    } else if (neuesFoto != null) {
       fotoUrl = await fotoHochladen(neuesFoto, qrCode);
     }
 
@@ -230,7 +242,7 @@ class PapierkorbService {
   }
 
   // ----------------------------------------------------------
-  // FOTO UPLOAD (Standortfoto)
+  // FOTO UPLOAD
   // ----------------------------------------------------------
 
   Future<String> fotoHochladen(File foto, String qrCode) async {
@@ -240,27 +252,35 @@ class PapierkorbService {
       minWidth: 800,
       minHeight: 800,
     );
+    if (komprimiert == null) throw Exception('Komprimierung fehlgeschlagen');
+    return _uploadBytes(komprimiert, '$qrCode.jpg');
+  }
 
-    if (komprimiert == null) {
-      throw Exception('Foto-Komprimierung fehlgeschlagen');
-    }
-
-    final dateiname = '$qrCode.jpg';
-
+  Future<String> _uploadBytes(Uint8List bytes, String pfad) async {
     await supabase.storage
         .from('papierkorb-fotos')
         .uploadBinary(
-          dateiname,
-          komprimiert,
+          pfad,
+          bytes,
           fileOptions: const FileOptions(
             contentType: 'image/jpeg',
             upsert: true,
           ),
         );
-
     return supabase.storage
         .from('papierkorb-fotos')
-        .getPublicUrl(dateiname);
+        .getPublicUrl(pfad);
+  }
+
+  Future<String> _uploadFile(File foto, String pfad) async {
+    final komprimiert = await FlutterImageCompress.compressWithFile(
+      foto.absolute.path,
+      quality: 55,
+      minWidth: 800,
+      minHeight: 800,
+    );
+    if (komprimiert == null) throw Exception('Komprimierung fehlgeschlagen');
+    return _uploadBytes(komprimiert, pfad);
   }
 
   // ----------------------------------------------------------
