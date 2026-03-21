@@ -9,6 +9,7 @@ import 'screens/fahrer/fahrer_screen.dart';
 import 'screens/fahrer/detail_screen.dart';
 import 'screens/admin/einmessen_screen.dart';
 import 'screens/admin/backoffice_screen.dart';
+import 'screens/admin/edit_screen.dart';
 import 'models/papierkorb.dart';
 
 Future<void> main() async {
@@ -40,7 +41,6 @@ class PapierkorbApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2E7D32)),
         useMaterial3: true,
       ),
-      // Web → Backoffice, Handy → Startscreen
       initialRoute: kIsWeb ? '/admin/backoffice' : '/start',
       routes: {
         '/start':            (_) => const StartScreen(),
@@ -64,6 +64,12 @@ class PapierkorbApp extends StatelessWidget {
               ),
             );
           }
+        }
+        if (settings.name == '/edit') {
+          final papierkorb = settings.arguments as Papierkorb;
+          return MaterialPageRoute(
+            builder: (_) => EditScreen(papierkorb: papierkorb),
+          );
         }
         return null;
       },

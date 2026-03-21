@@ -24,54 +24,22 @@ class DetailScreen extends StatefulWidget {
 
 class _DetailScreenState extends State<DetailScreen> {
   final _service = PapierkorbService();
-
-  // Leerungen
   List<Leerung> _leerungen = [];
   bool _laedtLeerungen = true;
-
-  // Leerung bestätigen
   bool _speichert = false;
   bool _erfolgreich = false;
-
-  // Edit-Modus
-  bool _editModus = false;
-  bool _speichertEdit = false;
-
-  // Edit-Felder
-  int? _editStrassenId;
-  final _editHausnummerCtrl = TextEditingController();
-  final _editBeschreibungCtrl = TextEditingController();
-  final _editLatCtrl = TextEditingController();
-  final _editLngCtrl = TextEditingController();
-  String _editStatus = 'aktiv';
-  File? _editNeuesFoto;
-
-  // Straßenliste für Edit
-  List<Map<String, dynamic>> _allStrassen = [];
-  List<Map<String, dynamic>> _strassenListe = [];
-  final _strassenSuchCtrl = TextEditingController();
-  bool _laedtStrassen = false;
+  late Papierkorb _papierkorb;
 
   @override
   void initState() {
     super.initState();
+    _papierkorb = widget.papierkorb;
     _ladeLeerungen();
-    _strassenSuchCtrl.addListener(_strassenFiltern);
-  }
-
-  @override
-  void dispose() {
-    _editHausnummerCtrl.dispose();
-    _editBeschreibungCtrl.dispose();
-    _editLatCtrl.dispose();
-    _editLngCtrl.dispose();
-    _strassenSuchCtrl.dispose();
-    super.dispose();
   }
 
   Future<void> _ladeLeerungen() async {
     try {
-      final leerungen = await _service.leerungenFuer(widget.papierkorb.id);
+      final leerungen = await _service.leerungenFuer(_papierkorb.id);
       setState(() {
         _leerungen = leerungen;
         _laedtLeerungen = false;
@@ -81,541 +49,248 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
-  Future<void> _ladeStrassen() async {
-    if (_allStrassen.isNotEmpty) return;
-    setState(() => _laedtStrassen = true);
-    try {
-      final liste = await _service.strassen();
-      setState(() {
-        _allStrassen = liste;
-        _strassenListe = liste;
-        _laedtStrassen = false;
-      });
-    } catch (_) {
-      setState(() => _laedtStrassen = false);
-    }
-  }
-
-  void _strassenFiltern() {
-    final suche = _strassenSuchCtrl.text.toLowerCase();
-    setState(() {
-      _strassenListe = suche.isEmpty
-          ? _allStrassen
-          : _allStrassen
-              .where((s) =>
-                  (s['name'] as String).toLowerCase().contains(suche))
-              .toList();
-    });
-  }
-
-  void _startEdit() async {
-    await _ladeStrassen();
-    final pk = widget.papierkorb;
-    setState(() {
-      _editModus = true;
-      _editStrassenId = pk.strassenId;
-      _editHausnummerCtrl.text = pk.hausnummer ?? '';
-      _editBeschreibungCtrl.text = pk.beschreibung ?? '';
-      _editLatCtrl.text = pk.lat.toStringAsFixed(6);
-      _editLngCtrl.text = pk.lng.toStringAsFixed(6);
-      _editStatus = pk.status;
-      _editNeuesFoto = null;
-    });
-  }
-
-  void _abbrechenEdit() {
-    setState(() {
-      _editModus = false;
-      _editNeuesFoto = null;
-      _strassenSuchCtrl.clear();
-    });
-  }
-
-  Future<void> _fotoErsetzen() async {
-    final picker = ImagePicker();
-    final bild = await picker.pickImage(
-      source: ImageSource.camera,
-      imageQuality: 90,
+  Future<void> _oeffneEdit() async {
+    final aktualisiert = await Navigator.pushNamed(
+      context,
+      '/edit',
+      arguments: _papierkorb,
     );
-    if (bild == null) return;
-    setState(() => _editNeuesFoto = File(bild.path));
+    if (aktualisiert is Papierkorb) {
+      setState(() => _papierkorb = aktualisiert);
+    }
   }
 
-  Future<void> _speichernEdit() async {
-    if (_editStrassenId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Bitte eine Straße auswählen'),
-          backgroundColor: Colors.orange,
+  // Leerungs-Dialog mit Foto, Bemerkung und Status
+  Future<void> _zeigeLeerungsDialog() async {
+    final bemerkungCtrl = TextEditingController();
+    File? foto;
+    String status = _papierkorb.status;
+    bool dialogSpeichert = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text('Leerung — ${_papierkorb.qrCode}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+
+                // Foto aufnehmen
+                GestureDetector(
+                  onTap: () async {
+                    final picker = ImagePicker();
+                    final bild = await picker.pickImage(
+                      source: ImageSource.camera,
+                      imageQuality: 90,
+                    );
+                    if (bild != null) {
+                      setDialogState(() => foto = File(bild.path));
+                    }
+                  },
+                  child: Container(
+                    height: 140,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: foto != null
+                        ? Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.file(foto!, fit: BoxFit.cover),
+                              ),
+                              Positioned(
+                                top: 6, right: 6,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Icon(Icons.refresh,
+                                      color: Colors.white, size: 16),
+                                ),
+                              ),
+                            ],
+                          )
+                        : Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.camera_alt,
+                                  size: 32, color: Colors.grey.shade400),
+                              const SizedBox(height: 6),
+                              Text('Foto aufnehmen (optional)',
+                                  style: TextStyle(
+                                      color: Colors.grey.shade500,
+                                      fontSize: 13)),
+                            ],
+                          ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Bemerkung
+                TextField(
+                  controller: bemerkungCtrl,
+                  maxLines: 3,
+                  decoration: InputDecoration(
+                    hintText: 'Bemerkung (optional)...',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                    contentPadding: const EdgeInsets.all(12),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Status
+                Text('Status',
+                    style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500)),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _statusChip('aktiv', 'Aktiv',
+                        Colors.green, status, (v) =>
+                            setDialogState(() => status = v)),
+                    const SizedBox(width: 8),
+                    _statusChip('defekt', 'Defekt',
+                        Colors.orange, status, (v) =>
+                            setDialogState(() => status = v)),
+                    const SizedBox(width: 8),
+                    _statusChip('entfernt', 'Entfernt',
+                        Colors.red, status, (v) =>
+                            setDialogState(() => status = v)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: dialogSpeichert
+                  ? null
+                  : () => Navigator.pop(ctx),
+              child: const Text('Abbrechen'),
+            ),
+            FilledButton.icon(
+              onPressed: dialogSpeichert
+                  ? null
+                  : () async {
+                      setDialogState(() => dialogSpeichert = true);
+
+                      try {
+                        await _service.leerungBestaetigen(
+                          papierkorbId:    _papierkorb.id,
+                          papierkorbQrCode: _papierkorb.qrCode,
+                          bemerkung: bemerkungCtrl.text.trim().isEmpty
+                              ? null
+                              : bemerkungCtrl.text.trim(),
+                          foto: foto,
+                          neuerStatus: status != _papierkorb.status
+                              ? status
+                              : null,
+                        );
+
+                        if (!ctx.mounted) return;
+                        Navigator.pop(ctx);
+
+                        setState(() => _erfolgreich = true);
+                        await Future.delayed(
+                            const Duration(seconds: 2));
+                        if (mounted) Navigator.pop(context);
+
+                      } catch (e) {
+                        setDialogState(
+                            () => dialogSpeichert = false);
+                        if (!ctx.mounted) return;
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(
+                            content: Text('Fehler: $e'),
+                            backgroundColor: Colors.red.shade700,
+                          ),
+                        );
+                      }
+                    },
+              style: FilledButton.styleFrom(
+                  backgroundColor: Colors.green.shade700),
+              icon: dialogSpeichert
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_outline),
+              label: Text(
+                  dialogSpeichert ? 'Speichert...' : 'Geleert ✓'),
+            ),
+          ],
         ),
-      );
-      return;
-    }
+      ),
+    );
+  }
 
-    final lat = double.tryParse(_editLatCtrl.text.replaceAll(',', '.'));
-    final lng = double.tryParse(_editLngCtrl.text.replaceAll(',', '.'));
-
-    if (lat == null || lng == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Ungültige GPS-Koordinaten'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    setState(() => _speichertEdit = true);
-
-    try {
-      final aktualisiert = await _service.aktualisieren(
-        id:          widget.papierkorb.id,
-        qrCode:      widget.papierkorb.qrCode,
-        strassenId:  _editStrassenId!,
-        hausnummer:  _editHausnummerCtrl.text.trim().isEmpty
-                         ? null : _editHausnummerCtrl.text.trim(),
-        beschreibung: _editBeschreibungCtrl.text.trim().isEmpty
-                         ? null : _editBeschreibungCtrl.text.trim(),
-        lat:         lat,
-        lng:         lng,
-        status:      _editStatus,
-        neuesFoto:   _editNeuesFoto,
-      );
-
-      setState(() {
-        _speichertEdit = false;
-        _editModus = false;
-        _editNeuesFoto = null;
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Gespeichert ✓'),
-          backgroundColor: Colors.green,
-        ),
-      );
-
-      // Screen mit aktualisierten Daten neu laden
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => DetailScreen(
-            papierkorb: aktualisiert,
-            readonly: widget.readonly,
+  Widget _statusChip(String wert, String label, MaterialColor farbe,
+      String aktuellerWert, Function(String) onTap) {
+    final ausgewaehlt = wert == aktuellerWert;
+    return GestureDetector(
+      onTap: () => onTap(wert),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: ausgewaehlt ? farbe.shade100 : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: ausgewaehlt ? farbe.shade400 : Colors.grey.shade300,
+            width: ausgewaehlt ? 2 : 1,
           ),
         ),
-      );
-
-    } catch (e) {
-      setState(() => _speichertEdit = false);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Fehler: $e'),
-          backgroundColor: Colors.red.shade700,
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            color: ausgewaehlt ? farbe.shade800 : Colors.grey.shade600,
+            fontWeight: ausgewaehlt ? FontWeight.bold : FontWeight.normal,
+          ),
         ),
-      );
-    }
-  }
-
-  Future<void> _leerungBestaetigen() async {
-    setState(() => _speichert = true);
-    try {
-      await _service.leerungBestaetigen(
-        papierkorbId: widget.papierkorb.id,
-      );
-      setState(() {
-        _speichert = false;
-        _erfolgreich = true;
-      });
-      await Future.delayed(const Duration(seconds: 2));
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      setState(() => _speichert = false);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Fehler: $e'),
-          backgroundColor: Colors.red.shade700,
-        ),
-      );
-    }
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final pk = widget.papierkorb;
-
     return Scaffold(
       appBar: AppBar(
-        title: Text(pk.qrCode),
+        title: Text(_papierkorb.qrCode),
         actions: [
-          // Edit-Button nur für Erfasser + Admin (nicht readonly=Fahrer)
-          if (!widget.readonly && !_editModus)
-            IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: _startEdit,
-            ),
-          if (_editModus) ...[
-            TextButton(
-              onPressed: _abbrechenEdit,
-              child: const Text('Abbrechen',
-                  style: TextStyle(color: Colors.red)),
-            ),
-          ],
+          IconButton(
+            icon: const Icon(Icons.edit),
+            tooltip: 'Bearbeiten',
+            onPressed: _oeffneEdit,
+          ),
         ],
       ),
       body: _erfolgreich
           ? _erfolgsAnzeige()
-          : _editModus
-              ? _editLayout(pk)
-              : kIsWeb
-                  ? _webLayout(pk)
-                  : _mobilLayout(pk),
+          : kIsWeb
+              ? _webLayout()
+              : _mobilLayout(),
     );
   }
 
-  // ----------------------------------------------------------
-  // EDIT LAYOUT
-  // ----------------------------------------------------------
-  Widget _editLayout(Papierkorb pk) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-
-          // Foto
-          _editFotoBereich(pk),
-          const SizedBox(height: 24),
-
-          // Straße
-          Text('Straße *',
-              style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey.shade600,
-                  fontWeight: FontWeight.w500)),
-          const SizedBox(height: 8),
-          _laedtStrassen
-              ? const LinearProgressIndicator()
-              : _strassenAuswahl(),
-
-          const SizedBox(height: 16),
-
-          // Hausnummer
-          TextFormField(
-            controller: _editHausnummerCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Hausnummer',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.home_outlined),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Beschreibung
-          TextFormField(
-            controller: _editBeschreibungCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Beschreibung',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.notes),
-            ),
-            maxLines: 2,
-          ),
-
-          const SizedBox(height: 16),
-
-          // GPS
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
-                  controller: _editLatCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Breitengrad (lat)',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true, signed: true),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextFormField(
-                  controller: _editLngCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Längengrad (lng)',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true, signed: true),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          // Status
-          DropdownButtonFormField<String>(
-            value: _editStatus,
-            decoration: const InputDecoration(
-              labelText: 'Status',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.info_outline),
-            ),
-            items: const [
-              DropdownMenuItem(value: 'aktiv', child: Text('Aktiv')),
-              DropdownMenuItem(value: 'defekt', child: Text('Defekt')),
-              DropdownMenuItem(
-                  value: 'entfernt', child: Text('Entfernt')),
-            ],
-            onChanged: (v) => setState(() => _editStatus = v!),
-          ),
-
-          const SizedBox(height: 32),
-
-          // Speichern
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton.icon(
-              onPressed: _speichertEdit ? null : _speichernEdit,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green.shade700,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-              icon: _speichertEdit
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2),
-                    )
-                  : const Icon(Icons.save),
-              label: Text(
-                _speichertEdit ? 'Wird gespeichert...' : 'Speichern',
-                style: const TextStyle(fontSize: 16),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-
-  Widget _editFotoBereich(Papierkorb pk) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Foto',
-            style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w500)),
-        const SizedBox(height: 8),
-        GestureDetector(
-          onTap: _fotoErsetzen,
-          child: Container(
-            height: 180,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade300),
-            ),
-            child: _editNeuesFoto != null
-                ? Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.file(_editNeuesFoto!,
-                            fit: BoxFit.cover),
-                      ),
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: Colors.black54,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Icon(Icons.refresh,
-                              color: Colors.white, size: 18),
-                        ),
-                      ),
-                    ],
-                  )
-                : pk.fotoUrl != null
-                    ? Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: CachedNetworkImage(
-                              imageUrl: pk.fotoUrl!,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.black38,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.camera_alt,
-                                      color: Colors.white, size: 32),
-                                  SizedBox(height: 4),
-                                  Text('Foto ersetzen',
-                                      style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 13)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      )
-                    : Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.camera_alt,
-                              size: 36, color: Colors.grey.shade400),
-                          const SizedBox(height: 8),
-                          Text('Foto aufnehmen',
-                              style: TextStyle(
-                                  color: Colors.grey.shade500)),
-                        ],
-                      ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _strassenAuswahl() {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade400),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: TextField(
-              controller: _strassenSuchCtrl,
-              decoration: InputDecoration(
-                hintText: 'Straße suchen...',
-                prefixIcon: const Icon(Icons.search, size: 20),
-                suffixIcon: _strassenSuchCtrl.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 18),
-                        onPressed: () {
-                          _strassenSuchCtrl.clear();
-                          _strassenFiltern();
-                        },
-                      )
-                    : null,
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8)),
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 8),
-                isDense: true,
-              ),
-            ),
-          ),
-          if (_editStrassenId != null && _allStrassen.isNotEmpty)
-            Container(
-              margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.green.shade300),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.check_circle,
-                      color: Colors.green.shade600, size: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _allStrassen.firstWhere((s) =>
-                          s['id'] == _editStrassenId,
-                          orElse: () => {'name': ''})['name'] as String,
-                      style: TextStyle(
-                          color: Colors.green.shade800,
-                          fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () =>
-                        setState(() => _editStrassenId = null),
-                    style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        minimumSize: const Size(40, 24)),
-                    child: const Text('Ändern',
-                        style: TextStyle(fontSize: 12)),
-                  ),
-                ],
-              ),
-            ),
-          SizedBox(
-            height: 180,
-            child: _strassenListe.isEmpty
-                ? Center(
-                    child: Text('Keine Treffer',
-                        style:
-                            TextStyle(color: Colors.grey.shade500)))
-                : ListView.builder(
-                    itemCount: _strassenListe.length,
-                    itemBuilder: (_, i) {
-                      final s = _strassenListe[i];
-                      final istAusgewaehlt =
-                          s['id'] == _editStrassenId;
-                      return ListTile(
-                        dense: true,
-                        selected: istAusgewaehlt,
-                        selectedTileColor: Colors.green.shade50,
-                        title: Text(s['name'] as String),
-                        subtitle: s['stadtteil'] != null
-                            ? Text(s['stadtteil'] as String,
-                                style:
-                                    const TextStyle(fontSize: 11))
-                            : null,
-                        trailing: istAusgewaehlt
-                            ? Icon(Icons.check,
-                                color: Colors.green.shade600,
-                                size: 18)
-                            : null,
-                        onTap: () => setState(
-                            () => _editStrassenId = s['id'] as int),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ----------------------------------------------------------
-  // WEB LAYOUT
-  // ----------------------------------------------------------
-  Widget _webLayout(Papierkorb pk) {
+  Widget _webLayout() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32),
       child: Row(
@@ -625,44 +300,38 @@ class _DetailScreenState extends State<DetailScreen> {
             flex: 3,
             child: Padding(
               padding: const EdgeInsets.only(right: 32),
-              child: _infoBereich(pk),
+              child: _infoBereich(),
             ),
           ),
           Expanded(
             flex: 2,
-            child: _fotoWidget(pk, maxHoehe: 320),
+            child: _fotoWidget(maxHoehe: 320),
           ),
         ],
       ),
     );
   }
 
-  // ----------------------------------------------------------
-  // MOBIL LAYOUT
-  // ----------------------------------------------------------
-  Widget _mobilLayout(Papierkorb pk) {
+  Widget _mobilLayout() {
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
-            child: _fotoWidget(pk),
+            child: _fotoWidget(),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-            child: _infoBereich(pk),
+            child: _infoBereich(),
           ),
         ],
       ),
     );
   }
 
-  // ----------------------------------------------------------
-  // FOTO WIDGET (readonly)
-  // ----------------------------------------------------------
-  Widget _fotoWidget(Papierkorb pk, {double? maxHoehe}) {
-    if (pk.fotoUrl == null) {
+  Widget _fotoWidget({double? maxHoehe}) {
+    if (_papierkorb.fotoUrl == null) {
       return Container(
         height: 160,
         decoration: BoxDecoration(
@@ -698,10 +367,10 @@ class _DetailScreenState extends State<DetailScreen> {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: CachedNetworkImage(
-              imageUrl: pk.fotoUrl!,
+              imageUrl: _papierkorb.fotoUrl!,
               fit: BoxFit.contain,
-              placeholder: (_, __) => const Center(
-                  child: CircularProgressIndicator()),
+              placeholder: (_, __) =>
+                  const Center(child: CircularProgressIndicator()),
               errorWidget: (_, __, ___) => Icon(
                   Icons.broken_image,
                   color: Colors.grey.shade400,
@@ -713,17 +382,15 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
-  // ----------------------------------------------------------
-  // INFO BEREICH (readonly)
-  // ----------------------------------------------------------
-  Widget _infoBereich(Papierkorb pk) {
+  Widget _infoBereich() {
     final datumFormat = DateFormat('dd.MM.yyyy', 'de_DE');
+    final pk = _papierkorb;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
 
-        // Nummer + Status
+        // QR-Code + Status
         Row(
           children: [
             Container(
@@ -803,7 +470,6 @@ class _DetailScreenState extends State<DetailScreen> {
           ],
         ),
 
-        // Koordinaten
         const SizedBox(height: 8),
         Padding(
           padding: const EdgeInsets.only(left: 28),
@@ -817,7 +483,6 @@ class _DetailScreenState extends State<DetailScreen> {
           ),
         ),
 
-        // Beschreibung
         if (pk.beschreibung != null) ...[
           const SizedBox(height: 12),
           Container(
@@ -843,7 +508,6 @@ class _DetailScreenState extends State<DetailScreen> {
         const Divider(),
         const SizedBox(height: 16),
 
-        // Leerungshistorie
         Text(
           'Leerungshistorie',
           style: Theme.of(context)
@@ -856,15 +520,13 @@ class _DetailScreenState extends State<DetailScreen> {
         if (_laedtLeerungen)
           const Center(child: CircularProgressIndicator())
         else if (_leerungen.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text('Noch keine Leerung erfasst',
-                style: TextStyle(color: Colors.grey.shade500)),
-          )
+          Text('Noch keine Leerung erfasst',
+              style: TextStyle(color: Colors.grey.shade500))
         else
           ..._leerungen.map((l) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.only(bottom: 10),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(
                       Icons.check_circle_outline,
@@ -874,49 +536,73 @@ class _DetailScreenState extends State<DetailScreen> {
                           : Colors.green.shade600,
                     ),
                     const SizedBox(width: 8),
-                    Text(datumFormat
-                        .format(l.geleertAm.toLocal())),
-                    if (l.twice) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.shade100,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text('2×',
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.orange.shade800)),
-                      ),
-                    ],
-                    if (l.bemerkung != null) ...[
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          l.bemerkung!,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                            fontStyle: FontStyle.italic,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(datumFormat
+                                  .format(l.geleertAm.toLocal())),
+                              if (l.twice) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange.shade100,
+                                    borderRadius:
+                                        BorderRadius.circular(4),
+                                  ),
+                                  child: Text('2×',
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color:
+                                              Colors.orange.shade800)),
+                                ),
+                              ],
+                            ],
                           ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                          if (l.bemerkung != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                l.bemerkung!,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ),
+                          if (l.fotoUrl != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(6),
+                                child: CachedNetworkImage(
+                                  imageUrl: l.fotoUrl!,
+                                  height: 80,
+                                  width: 120,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
-                    ],
+                    ),
                   ],
                 ),
               )),
 
-        // Geleert-Button nur Fahrer (readonly=false aber kein Edit-Modus)
+        // Geleert-Button — nur Fahrer (readonly=true)
         if (widget.readonly) ...[
           const SizedBox(height: 32),
           SizedBox(
             width: double.infinity,
             height: 56,
             child: ElevatedButton.icon(
-              onPressed: _speichert ? null : _leerungBestaetigen,
+              onPressed: _speichert ? null : _zeigeLeerungsDialog,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green.shade700,
                 foregroundColor: Colors.white,
@@ -962,7 +648,7 @@ class _DetailScreenState extends State<DetailScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            widget.papierkorb.qrCode,
+            _papierkorb.qrCode,
             style: TextStyle(
                 color: Colors.grey.shade600,
                 fontFamily: 'monospace'),

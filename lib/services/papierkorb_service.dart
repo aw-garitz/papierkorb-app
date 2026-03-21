@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../main.dart';
@@ -53,17 +54,72 @@ class PapierkorbService {
         .toList();
   }
 
+  // Leerung bestätigen mit optionalem Foto, Bemerkung und Status
   Future<void> leerungBestaetigen({
     required String papierkorbId,
     String? bemerkung,
+    File? foto,
+    String? neuerStatus,  // null = Status unverändert
+    required String papierkorbQrCode,
   }) async {
+    String? fotoUrl;
+
+    // Foto hochladen falls vorhanden
+    if (foto != null) {
+      fotoUrl = await leerungFotoHochladen(foto, papierkorbQrCode);
+    }
+
+    // Leerung speichern
     await supabase
         .schema('waste')
         .from('leerungen')
         .insert({
           'papierkorb_id': papierkorbId,
           'bemerkung':     bemerkung,
+          'foto_url':      fotoUrl,
         });
+
+    // Status aktualisieren falls geändert
+    if (neuerStatus != null) {
+      await supabase
+          .schema('waste')
+          .from('papierkörbe')
+          .update({'status': neuerStatus})
+          .eq('id', papierkorbId);
+    }
+  }
+
+  // Foto für Leerung hochladen
+  Future<String> leerungFotoHochladen(File foto, String qrCode) async {
+    final komprimiert = await FlutterImageCompress.compressWithFile(
+      foto.absolute.path,
+      quality: 55,
+      minWidth: 800,
+      minHeight: 800,
+    );
+
+    if (komprimiert == null) {
+      throw Exception('Foto-Komprimierung fehlgeschlagen');
+    }
+
+    // Dateiname: qrCode + Timestamp damit mehrere Fotos möglich
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final dateiname = 'leerungen/${qrCode}_$ts.jpg';
+
+    await supabase.storage
+        .from('papierkorb-fotos')
+        .uploadBinary(
+          dateiname,
+          komprimiert,
+          fileOptions: const FileOptions(
+            contentType: 'image/jpeg',
+            upsert: false,
+          ),
+        );
+
+    return supabase.storage
+        .from('papierkorb-fotos')
+        .getPublicUrl(dateiname);
   }
 
   // ----------------------------------------------------------
@@ -121,7 +177,7 @@ class PapierkorbService {
     required double lat,
     required double lng,
     required String status,
-    File? neuesFoto,        // null = Foto unverändert lassen
+    File? neuesFoto,
   }) async {
     String? fotoUrl;
     if (neuesFoto != null) {
@@ -135,7 +191,7 @@ class PapierkorbService {
       'lat':          lat,
       'lng':          lng,
       'status':       status,
-      'geodaten_geaendert_am': DateTime.now().toIso8601String(),
+      'geodaten_geändert_am': DateTime.now().toIso8601String(),
     };
 
     if (fotoUrl != null) {
@@ -168,13 +224,13 @@ class PapierkorbService {
         .update({
           'lat': lat,
           'lng': lng,
-          'geodaten_geaendert_am': DateTime.now().toIso8601String(),
+          'geodaten_geändert_am': DateTime.now().toIso8601String(),
         })
         .eq('id', id);
   }
 
   // ----------------------------------------------------------
-  // FOTO UPLOAD
+  // FOTO UPLOAD (Standortfoto)
   // ----------------------------------------------------------
 
   Future<String> fotoHochladen(File foto, String qrCode) async {
@@ -215,7 +271,7 @@ class PapierkorbService {
     final response = await supabase
         .from('strassen')
         .select('id, name, stadtteil')
-        .order('name');
+        .order('name', ascending: true);
 
     return List<Map<String, dynamic>>.from(response);
   }

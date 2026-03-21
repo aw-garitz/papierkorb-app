@@ -4,6 +4,7 @@ class Leerung {
   final String? benutzerId;
   final DateTime geleertAm;
   final String? bemerkung;
+  final String? fotoUrl;
   final bool twice;
 
   const Leerung({
@@ -12,6 +13,7 @@ class Leerung {
     this.benutzerId,
     required this.geleertAm,
     this.bemerkung,
+    this.fotoUrl,
     required this.twice,
   });
 
@@ -22,6 +24,7 @@ class Leerung {
       benutzerId:   json['benutzer_id'] as String?,
       geleertAm:    DateTime.parse(json['geleert_am'] as String),
       bemerkung:    json['bemerkung'] as String?,
+      fotoUrl:      json['foto_url'] as String?,
       twice:        json['twice'] as bool? ?? false,
     );
   }
