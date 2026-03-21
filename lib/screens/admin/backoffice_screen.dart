@@ -55,18 +55,21 @@ class _BackofficeScreenState extends State<BackofficeScreen>
     }
   }
 
-  void _filtern() {
-    final suche = _suchCtrl.text.toLowerCase();
-    setState(() {
-      _gefiltert = suche.isEmpty
-          ? _alle
-          : _alle.where((pk) {
-              final strasse =
-                  (pk.strasseName ?? pk.qrCode).toLowerCase();
-              return strasse.contains(suche);
-            }).toList();
-    });
-  }
+void _filtern() {
+  final suche = _suchCtrl.text.toLowerCase();
+  setState(() {
+    _gefiltert = suche.isEmpty
+        ? _alle
+        : _alle.where((pk) {
+            final strasse = (pk.strasseName ?? '').toLowerCase();
+            final beschreibung = (pk.beschreibung ?? '').toLowerCase();
+            final qrCode = pk.qrCode.toLowerCase();
+            return strasse.contains(suche) ||
+                   beschreibung.contains(suche) ||
+                   qrCode.contains(suche);
+          }).toList();
+  });
+}
 
   void _zoomAufMarker(Papierkorb pk) {
     _tabController.animateTo(1);
@@ -195,7 +198,7 @@ class _BackofficeScreenState extends State<BackofficeScreen>
           child: TextField(
             controller: _suchCtrl,
             decoration: InputDecoration(
-              hintText: 'Nach Straße suchen...',
+              hintText: 'Nach Straße, Beschreibung oder QR-Code suchen...',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: _suchCtrl.text.isNotEmpty
                   ? IconButton(

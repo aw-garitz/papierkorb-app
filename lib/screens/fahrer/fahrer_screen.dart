@@ -80,7 +80,8 @@ class _FahrerScreenState extends State<FahrerScreen>
               final beschreibung =
                   (pk.beschreibung ?? '').toLowerCase();
               return strasse.contains(suche) ||
-                  beschreibung.contains(suche);
+                  beschreibung.contains(suche) ||
+                  pk.qrCode.toLowerCase().contains(suche); 
             }).toList();
     });
   }
@@ -248,7 +249,7 @@ class _FahrerScreenState extends State<FahrerScreen>
           child: TextField(
             controller: _suchCtrl,
             decoration: InputDecoration(
-              hintText: 'Nach Straße oder Beschreibung suchen...',
+              hintText: 'Nach Straße, Beschreibung oder QR-Code suchen...',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: _suchCtrl.text.isNotEmpty
                   ? IconButton(
