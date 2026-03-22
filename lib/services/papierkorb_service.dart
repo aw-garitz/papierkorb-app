@@ -123,6 +123,17 @@ class PapierkorbService {
   }
 
   // ----------------------------------------------------------
+  // EXPORT
+  // ----------------------------------------------------------
+
+  Future<List<Map<String, dynamic>>> exportDaten() async {
+    final response = await supabase
+        .from('papierkörbe_export_view')
+        .select();
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  // ----------------------------------------------------------
   // ADMIN: PAPIERKORB ANLEGEN
   // ----------------------------------------------------------
 
