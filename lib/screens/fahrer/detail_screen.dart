@@ -30,8 +30,6 @@ class _DetailScreenState extends State<DetailScreen> {
   bool _speichert = false;
   bool _erfolgreich = false;
   late Papierkorb _papierkorb;
-
-  // Cache-Buster für Foto nach Edit
   String? _fotoUrlMitTimestamp;
 
   @override
@@ -62,7 +60,6 @@ class _DetailScreenState extends State<DetailScreen> {
     if (aktualisiert is Papierkorb) {
       setState(() {
         _papierkorb = aktualisiert;
-        // Cache-Buster damit Browser das neue Foto lädt
         if (aktualisiert.fotoUrl != null) {
           _fotoUrlMitTimestamp =
               '${aktualisiert.fotoUrl!}?t=${DateTime.now().millisecondsSinceEpoch}';
@@ -89,8 +86,6 @@ class _DetailScreenState extends State<DetailScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-
-                // Foto aufnehmen
                 GestureDetector(
                   onTap: () async {
                     final picker = ImagePicker();
@@ -131,16 +126,11 @@ class _DetailScreenState extends State<DetailScreen> {
                                   padding: const EdgeInsets.all(4),
                                   decoration: BoxDecoration(
                                     color: Colors.black54,
-                                    borderRadius:
-                                        BorderRadius.circular(4),
+                                    borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: Icon(
-                                    kIsWeb
-                                        ? Icons.upload_file
-                                        : Icons.refresh,
-                                    color: Colors.white,
-                                    size: 16,
-                                  ),
+                                    kIsWeb ? Icons.upload_file : Icons.refresh,
+                                    color: Colors.white, size: 16),
                                 ),
                               ),
                             ],
@@ -149,29 +139,20 @@ class _DetailScreenState extends State<DetailScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Icon(
-                                kIsWeb
-                                    ? Icons.upload_file
-                                    : Icons.camera_alt,
-                                size: 32,
-                                color: Colors.grey.shade400,
-                              ),
+                                kIsWeb ? Icons.upload_file : Icons.camera_alt,
+                                size: 32, color: Colors.grey.shade400),
                               const SizedBox(height: 6),
                               Text(
                                 kIsWeb
                                     ? 'Datei auswählen (optional)'
                                     : 'Foto aufnehmen (optional)',
                                 style: TextStyle(
-                                    color: Colors.grey.shade500,
-                                    fontSize: 13),
-                              ),
+                                    color: Colors.grey.shade500, fontSize: 13)),
                             ],
                           ),
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
-                // Bemerkung
                 TextField(
                   controller: bemerkungCtrl,
                   maxLines: 3,
@@ -182,10 +163,7 @@ class _DetailScreenState extends State<DetailScreen> {
                     contentPadding: const EdgeInsets.all(12),
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
-                // Status
                 Text('Status',
                     style: TextStyle(
                         fontSize: 13,
@@ -194,16 +172,13 @@ class _DetailScreenState extends State<DetailScreen> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    _statusChip('aktiv', 'Aktiv', Colors.green,
-                        status,
+                    _statusChip('aktiv', 'Aktiv', Colors.green, status,
                         (v) => setDialogState(() => status = v)),
                     const SizedBox(width: 8),
-                    _statusChip('defekt', 'Defekt', Colors.orange,
-                        status,
+                    _statusChip('defekt', 'Defekt', Colors.orange, status,
                         (v) => setDialogState(() => status = v)),
                     const SizedBox(width: 8),
-                    _statusChip('entfernt', 'Entfernt', Colors.red,
-                        status,
+                    _statusChip('entfernt', 'Entfernt', Colors.red, status,
                         (v) => setDialogState(() => status = v)),
                   ],
                 ),
@@ -212,8 +187,7 @@ class _DetailScreenState extends State<DetailScreen> {
           ),
           actions: [
             TextButton(
-              onPressed:
-                  dialogSpeichert ? null : () => Navigator.pop(ctx),
+              onPressed: dialogSpeichert ? null : () => Navigator.pop(ctx),
               child: const Text('Abbrechen'),
             ),
             FilledButton.icon(
@@ -223,33 +197,27 @@ class _DetailScreenState extends State<DetailScreen> {
                       setDialogState(() => dialogSpeichert = true);
                       try {
                         await _service.leerungBestaetigen(
-                          papierkorbId: _papierkorb.id,
+                          papierkorbId:     _papierkorb.id,
                           papierkorbQrCode: _papierkorb.qrCode,
                           bemerkung: bemerkungCtrl.text.trim().isEmpty
-                              ? null
-                              : bemerkungCtrl.text.trim(),
+                              ? null : bemerkungCtrl.text.trim(),
                           foto:       foto,
                           fotoBytes:  fotoBytes,
-                          neuerStatus:
-                              status != _papierkorb.status
-                                  ? status
-                                  : null,
+                          neuerStatus: status != _papierkorb.status
+                              ? status : null,
                         );
                         if (!ctx.mounted) return;
                         Navigator.pop(ctx);
                         setState(() => _erfolgreich = true);
-                        await Future.delayed(
-                            const Duration(seconds: 2));
+                        await Future.delayed(const Duration(seconds: 2));
                         if (mounted) Navigator.pop(context);
                       } catch (e) {
-                        setDialogState(
-                            () => dialogSpeichert = false);
+                        setDialogState(() => dialogSpeichert = false);
                         if (!ctx.mounted) return;
                         ScaffoldMessenger.of(ctx).showSnackBar(
                           SnackBar(
-                            content: Text('Fehler: $e'),
-                            backgroundColor: Colors.red.shade700,
-                          ),
+                              content: Text('Fehler: $e'),
+                              backgroundColor: Colors.red.shade700),
                         );
                       }
                     },
@@ -257,14 +225,11 @@ class _DetailScreenState extends State<DetailScreen> {
                   backgroundColor: Colors.green.shade700),
               icon: dialogSpeichert
                   ? const SizedBox(
-                      width: 16,
-                      height: 16,
+                      width: 16, height: 16,
                       child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2),
-                    )
+                          color: Colors.white, strokeWidth: 2))
                   : const Icon(Icons.delete_outline),
-              label: Text(
-                  dialogSpeichert ? 'Speichert...' : 'Geleert ✓'),
+              label: Text(dialogSpeichert ? 'Speichert...' : 'Geleert ✓'),
             ),
           ],
         ),
@@ -278,17 +243,12 @@ class _DetailScreenState extends State<DetailScreen> {
     return GestureDetector(
       onTap: () => onTap(wert),
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: ausgewaehlt
-              ? farbe.shade100
-              : Colors.grey.shade100,
+          color: ausgewaehlt ? farbe.shade100 : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: ausgewaehlt
-                ? farbe.shade400
-                : Colors.grey.shade300,
+            color: ausgewaehlt ? farbe.shade400 : Colors.grey.shade300,
             width: ausgewaehlt ? 2 : 1,
           ),
         ),
@@ -296,12 +256,8 @@ class _DetailScreenState extends State<DetailScreen> {
           label,
           style: TextStyle(
             fontSize: 13,
-            color: ausgewaehlt
-                ? farbe.shade800
-                : Colors.grey.shade600,
-            fontWeight: ausgewaehlt
-                ? FontWeight.bold
-                : FontWeight.normal,
+            color: ausgewaehlt ? farbe.shade800 : Colors.grey.shade600,
+            fontWeight: ausgewaehlt ? FontWeight.bold : FontWeight.normal,
           ),
         ),
       ),
@@ -356,6 +312,35 @@ class _DetailScreenState extends State<DetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Geleert-Button ganz oben
+          if (widget.readonly)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton.icon(
+                  onPressed: _speichert ? null : _zeigeLeerungsDialog,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.shade700,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: _speichert
+                      ? const SizedBox(
+                          width: 20, height: 20,
+                          child: CircularProgressIndicator(
+                              color: Colors.white, strokeWidth: 2))
+                      : const Icon(Icons.delete_outline, size: 24),
+                  label: Text(
+                    _speichert ? 'Wird gespeichert...' : 'Geleert ✓',
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.all(16),
             child: _fotoWidget(),
@@ -370,9 +355,7 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Widget _fotoWidget({double? maxHoehe}) {
-    // URL mit Cache-Buster falls nach Edit aktualisiert
     final fotoUrl = _fotoUrlMitTimestamp ?? _papierkorb.fotoUrl;
-
     if (fotoUrl == null) {
       return Container(
         height: 160,
@@ -383,25 +366,21 @@ class _DetailScreenState extends State<DetailScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.no_photography,
-                size: 36, color: Colors.grey.shade400),
+            Icon(Icons.no_photography, size: 36, color: Colors.grey.shade400),
             const SizedBox(height: 4),
             Text('Kein Foto vorhanden',
-                style: TextStyle(
-                    color: Colors.grey.shade400, fontSize: 12)),
+                style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
           ],
         ),
       );
     }
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final seite = maxHoehe != null
             ? constraints.maxWidth.clamp(0.0, maxHoehe)
             : constraints.maxWidth;
         return Container(
-          width: seite,
-          height: seite,
+          width: seite, height: seite,
           decoration: BoxDecoration(
             color: Colors.grey.shade100,
             borderRadius: BorderRadius.circular(12),
@@ -410,17 +389,14 @@ class _DetailScreenState extends State<DetailScreen> {
             borderRadius: BorderRadius.circular(12),
             child: CachedNetworkImage(
               imageUrl: fotoUrl,
-              // Cache-Key erzwingen wenn Timestamp gesetzt
               cacheKey: _fotoUrlMitTimestamp != null
                   ? 'foto_${_papierkorb.qrCode}_${DateTime.now().millisecondsSinceEpoch}'
                   : _papierkorb.qrCode,
               fit: BoxFit.contain,
-              placeholder: (_, __) => const Center(
-                  child: CircularProgressIndicator()),
-              errorWidget: (_, __, ___) => Icon(
-                  Icons.broken_image,
-                  color: Colors.grey.shade400,
-                  size: 40),
+              placeholder: (_, __) =>
+                  const Center(child: CircularProgressIndicator()),
+              errorWidget: (_, __, ___) =>
+                  Icon(Icons.broken_image, color: Colors.grey.shade400, size: 40),
             ),
           ),
         );
@@ -440,25 +416,20 @@ class _DetailScreenState extends State<DetailScreen> {
         Row(
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 10, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 color: Colors.green.shade100,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Text(
-                pk.qrCode,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.green.shade800,
-                  fontFamily: 'monospace',
-                ),
-              ),
+              child: Text(pk.qrCode,
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green.shade800,
+                      fontFamily: 'monospace')),
             ),
             const SizedBox(width: 8),
             Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 10, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 color: pk.status == 'aktiv'
                     ? Colors.green.shade50
@@ -474,17 +445,15 @@ class _DetailScreenState extends State<DetailScreen> {
                           : Colors.red.shade200,
                 ),
               ),
-              child: Text(
-                pk.status,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: pk.status == 'aktiv'
-                      ? Colors.green.shade700
-                      : pk.status == 'defekt'
-                          ? Colors.orange.shade700
-                          : Colors.red.shade700,
-                ),
-              ),
+              child: Text(pk.status,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: pk.status == 'aktiv'
+                        ? Colors.green.shade700
+                        : pk.status == 'defekt'
+                            ? Colors.orange.shade700
+                            : Colors.red.shade700,
+                  )),
             ),
           ],
         ),
@@ -495,40 +464,55 @@ class _DetailScreenState extends State<DetailScreen> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.location_on,
-                color: Colors.grey.shade500, size: 20),
+            Icon(Icons.location_on, color: Colors.grey.shade500, size: 20),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(pk.adresse,
-                      style:
-                          Theme.of(context).textTheme.titleMedium),
+                      style: Theme.of(context).textTheme.titleMedium),
                   if (pk.stadtteil != null)
                     Text(pk.stadtteil!,
                         style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 13)),
+                            color: Colors.grey.shade600, fontSize: 13)),
                 ],
               ),
             ),
           ],
         ),
 
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Padding(
           padding: const EdgeInsets.only(left: 28),
           child: Text(
             '${pk.lat.toStringAsFixed(6)}, ${pk.lng.toStringAsFixed(6)}',
             style: TextStyle(
-              fontSize: 11,
-              color: Colors.grey.shade400,
-              fontFamily: 'monospace',
-            ),
+                fontSize: 11,
+                color: Colors.grey.shade400,
+                fontFamily: 'monospace'),
           ),
         ),
 
+        // Bauart
+        if (pk.bauart != null) ...[
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.only(left: 28),
+            child: Row(
+              children: [
+                Icon(Icons.delete_outline,
+                    size: 14, color: Colors.grey.shade400),
+                const SizedBox(width: 4),
+                Text(pk.bauart!,
+                    style: TextStyle(
+                        color: Colors.grey.shade500, fontSize: 13)),
+              ],
+            ),
+          ),
+        ],
+
+        // Beschreibung
         if (pk.beschreibung != null) ...[
           const SizedBox(height: 12),
           Container(
@@ -541,11 +525,39 @@ class _DetailScreenState extends State<DetailScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.info_outline,
-                    color: Colors.amber, size: 18),
+                const Icon(Icons.info_outline, color: Colors.amber, size: 18),
                 const SizedBox(width: 8),
                 Expanded(child: Text(pk.beschreibung!)),
               ],
+            ),
+          ),
+        ],
+
+        // Geleert-Button im Web (nach Infos, vor Historie)
+        if (widget.readonly && kIsWeb) ...[
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton.icon(
+              onPressed: _speichert ? null : _zeigeLeerungsDialog,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green.shade700,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              icon: _speichert
+                  ? const SizedBox(
+                      width: 20, height: 20,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.delete_outline, size: 24),
+              label: Text(
+                _speichert ? 'Wird gespeichert...' : 'Geleert ✓',
+                style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold),
+              ),
             ),
           ),
         ],
@@ -554,13 +566,11 @@ class _DetailScreenState extends State<DetailScreen> {
         const Divider(),
         const SizedBox(height: 16),
 
-        Text(
-          'Leerungshistorie',
-          style: Theme.of(context)
-              .textTheme
-              .titleSmall
-              ?.copyWith(color: Colors.grey.shade600),
-        ),
+        Text('Leerungshistorie',
+            style: Theme.of(context)
+                .textTheme
+                .titleSmall
+                ?.copyWith(color: Colors.grey.shade600)),
         const SizedBox(height: 8),
 
         if (_laedtLeerungen)
@@ -574,64 +584,50 @@ class _DetailScreenState extends State<DetailScreen> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      Icons.check_circle_outline,
-                      size: 16,
-                      color: l.twice
-                          ? Colors.orange
-                          : Colors.green.shade600,
-                    ),
+                    Icon(Icons.check_circle_outline,
+                        size: 16,
+                        color: l.twice
+                            ? Colors.orange
+                            : Colors.green.shade600),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              Text(datumFormat
-                                  .format(l.geleertAm.toLocal())),
+                              Text(datumFormat.format(l.geleertAm.toLocal())),
                               if (l.twice) ...[
                                 const SizedBox(width: 8),
                                 Container(
-                                  padding:
-                                      const EdgeInsets.symmetric(
-                                          horizontal: 6,
-                                          vertical: 2),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
                                   decoration: BoxDecoration(
                                     color: Colors.orange.shade100,
-                                    borderRadius:
-                                        BorderRadius.circular(4),
+                                    borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: Text('2×',
                                       style: TextStyle(
                                           fontSize: 11,
-                                          color: Colors
-                                              .orange.shade800)),
+                                          color: Colors.orange.shade800)),
                                 ),
                               ],
                             ],
                           ),
                           if (l.bemerkung != null)
                             Padding(
-                              padding:
-                                  const EdgeInsets.only(top: 4),
-                              child: Text(
-                                l.bemerkung!,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade600,
-                                  fontStyle: FontStyle.italic,
-                                ),
-                              ),
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(l.bemerkung!,
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                      fontStyle: FontStyle.italic)),
                             ),
                           if (l.fotoUrl != null)
                             Padding(
-                              padding:
-                                  const EdgeInsets.only(top: 6),
+                              padding: const EdgeInsets.only(top: 6),
                               child: ClipRRect(
-                                borderRadius:
-                                    BorderRadius.circular(6),
+                                borderRadius: BorderRadius.circular(6),
                                 child: CachedNetworkImage(
                                   imageUrl: l.fotoUrl!,
                                   height: 80,
@@ -647,38 +643,6 @@ class _DetailScreenState extends State<DetailScreen> {
                 ),
               )),
 
-        // Geleert-Button nur Fahrer (readonly=true)
-        if (widget.readonly) ...[
-          const SizedBox(height: 32),
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton.icon(
-              onPressed:
-                  _speichert ? null : _zeigeLeerungsDialog,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green.shade700,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-              icon: _speichert
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2),
-                    )
-                  : const Icon(Icons.delete_outline, size: 24),
-              label: Text(
-                _speichert ? 'Wird gespeichert...' : 'Geleert ✓',
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ),
-        ],
-
         const SizedBox(height: 24),
       ],
     );
@@ -689,23 +653,17 @@ class _DetailScreenState extends State<DetailScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.check_circle,
-              color: Colors.green.shade600, size: 80),
+          Icon(Icons.check_circle, color: Colors.green.shade600, size: 80),
           const SizedBox(height: 16),
-          Text(
-            'Leerung gespeichert!',
-            style: Theme.of(context)
-                .textTheme
-                .headlineSmall
-                ?.copyWith(color: Colors.green.shade700),
-          ),
+          Text('Leerung gespeichert!',
+              style: Theme.of(context)
+                  .textTheme
+                  .headlineSmall
+                  ?.copyWith(color: Colors.green.shade700)),
           const SizedBox(height: 8),
-          Text(
-            _papierkorb.qrCode,
-            style: TextStyle(
-                color: Colors.grey.shade600,
-                fontFamily: 'monospace'),
-          ),
+          Text(_papierkorb.qrCode,
+              style: TextStyle(
+                  color: Colors.grey.shade600, fontFamily: 'monospace')),
         ],
       ),
     );

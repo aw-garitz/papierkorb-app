@@ -26,19 +26,18 @@ class _BackofficeScreenState extends State<BackofficeScreen>
   int _meldungsAnzahl = 0;
 
   @override
-  @override
-void initState() {
-  super.initState();
-  _tabController = TabController(length: 4, vsync: this);  // ← zuerst!
-  _tabController.addListener(() {
-    if (!_tabController.indexIsChanging &&
-        _tabController.previousIndex == 3) {
-      _laden();
-    }
-  });
-  _suchCtrl.addListener(_filtern);
-  _laden();
-}
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 4, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging &&
+          _tabController.previousIndex == 3) {
+        _laden();
+      }
+    });
+    _suchCtrl.addListener(_filtern);
+    _laden();
+  }
 
   @override
   void dispose() {
@@ -75,9 +74,11 @@ void initState() {
               final strasse = (pk.strasseName ?? '').toLowerCase();
               final beschreibung = (pk.beschreibung ?? '').toLowerCase();
               final qrCode = pk.qrCode.toLowerCase();
+              final bauart = (pk.bauart ?? '').toLowerCase();
               return strasse.contains(suche) ||
                   beschreibung.contains(suche) ||
-                  qrCode.contains(suche);
+                  qrCode.contains(suche) ||
+                  bauart.contains(suche);
             }).toList();
     });
   }
@@ -113,8 +114,7 @@ void initState() {
     if (naechster == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Kein Papierkorb in der Nähe — näher heranzoomen'),
-        ),
+            content: Text('Kein Papierkorb in der Nähe — näher heranzoomen')),
       );
       return;
     }
@@ -153,9 +153,8 @@ void initState() {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Position aktualisiert ✓'),
-          backgroundColor: Colors.green,
-        ),
+            content: Text('Position aktualisiert ✓'),
+            backgroundColor: Colors.green),
       );
     } catch (e) {
       if (!mounted) return;
@@ -204,10 +203,9 @@ void initState() {
                       child: Text(
                         '$_meldungsAnzahl',
                         style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold),
                       ),
                     ),
                   ],
@@ -239,7 +237,8 @@ void initState() {
           child: TextField(
             controller: _suchCtrl,
             decoration: InputDecoration(
-              hintText: 'Nach Straße, Beschreibung oder QR-Code suchen...',
+              hintText:
+                  'Nach Straße, Beschreibung, Bauart oder QR-Code suchen...',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: _suchCtrl.text.isNotEmpty
                   ? IconButton(
@@ -251,8 +250,7 @@ void initState() {
                     )
                   : null,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+                  borderRadius: BorderRadius.circular(12)),
               contentPadding: const EdgeInsets.symmetric(
                   horizontal: 16, vertical: 12),
             ),
@@ -263,27 +261,29 @@ void initState() {
             padding: const EdgeInsets.only(left: 16, bottom: 8),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: Text(
-                '${_gefiltert.length} Treffer',
-                style: TextStyle(
-                    fontSize: 12, color: Colors.grey.shade600),
-              ),
+              child: Text('${_gefiltert.length} Treffer',
+                  style: TextStyle(
+                      fontSize: 12, color: Colors.grey.shade600)),
             ),
           ),
         Expanded(
           child: _gefiltert.isEmpty
               ? Center(
-                  child: Text(
-                    'Keine Papierkörbe gefunden',
-                    style: TextStyle(color: Colors.grey.shade500),
-                  ),
-                )
+                  child: Text('Keine Papierkörbe gefunden',
+                      style: TextStyle(color: Colors.grey.shade500)))
               : ListView.separated(
                   itemCount: _gefiltert.length,
-                  separatorBuilder: (_, __) =>
-                      const Divider(height: 1),
+                  separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (_, i) {
                     final pk = _gefiltert[i];
+
+                    // Subtitle: Beschreibung · Bauart
+                    final subteileParts = [
+                      if (pk.beschreibung != null) pk.beschreibung!,
+                      if (pk.bauart != null) pk.bauart!,
+                    ];
+                    final subtitel = subteileParts.join(' · ');
+
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundColor: pk.status == 'aktiv'
@@ -305,9 +305,9 @@ void initState() {
                         ),
                       ),
                       title: Text(pk.adresse),
-                      subtitle: pk.beschreibung != null
+                      subtitle: subtitel.isNotEmpty
                           ? Text(
-                              pk.beschreibung!,
+                              subtitel,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(fontSize: 12),
@@ -343,8 +343,7 @@ void initState() {
         Opacity(
           opacity: 0.4,
           child: TileLayer(
-            urlTemplate:
-                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
             userAgentPackageName: 'de.stadt.papierkorb_app',
           ),
         ),
@@ -368,10 +367,9 @@ void initState() {
                             : Colors.grey,
                     shadows: const [
                       Shadow(
-                        color: Colors.black45,
-                        blurRadius: 4,
-                        offset: Offset(1, 1),
-                      ),
+                          color: Colors.black45,
+                          blurRadius: 4,
+                          offset: Offset(1, 1)),
                     ],
                   ),
                 ),

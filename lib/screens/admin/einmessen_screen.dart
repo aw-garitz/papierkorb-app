@@ -21,27 +21,32 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
   String? _qrCode;
   int? _nummer;
   int? _strassenId;
+  String? _bauartId;
   final _hausnummerCtrl = TextEditingController();
   final _beschreibungCtrl = TextEditingController();
   double? _lat;
   double? _lng;
 
-  // Foto — File für mobil, Bytes für Web
   File? _foto;
   Uint8List? _fotoBytes;
 
   bool _laedt = false;
   bool _laedtStrassen = true;
+  bool _laedtBauarten = true;
   bool _scanlaeuft = false;
   bool _gpsLaedt = false;
+
   List<Map<String, dynamic>> _allStrassen = [];
   List<Map<String, dynamic>> _strassenListe = [];
   final _strassenSuchCtrl = TextEditingController();
+
+  List<Map<String, dynamic>> _bauarten = [];
 
   @override
   void initState() {
     super.initState();
     _ladeStrassen();
+    _ladeBauarten();
     _strassenSuchCtrl.addListener(_strassenFiltern);
   }
 
@@ -66,6 +71,18 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
     }
   }
 
+  Future<void> _ladeBauarten() async {
+    try {
+      final liste = await _service.bauarten();
+      setState(() {
+        _bauarten = liste;
+        _laedtBauarten = false;
+      });
+    } catch (_) {
+      setState(() => _laedtBauarten = false);
+    }
+  }
+
   void _strassenFiltern() {
     final suche = _strassenSuchCtrl.text.toLowerCase();
     setState(() {
@@ -80,12 +97,10 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
 
   Future<void> _qrScannen() async {
     setState(() => _scanlaeuft = true);
-
     final result = await Navigator.push<String>(
       context,
       MaterialPageRoute(builder: (_) => const _QrScannerDialog()),
     );
-
     setState(() => _scanlaeuft = false);
     if (result == null) return;
 
@@ -95,7 +110,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Ungültiger QR-Code: $result\nErwartet: pk_0001'),
+          content: Text('Ungültiger QR-Code: $result'),
           backgroundColor: Colors.red.shade700,
         ),
       );
@@ -104,31 +119,30 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
 
     final vorhanden = await _service.perQrCode(result);
     if (!mounted) return;
-   if (vorhanden != null) {
-  if (!mounted) return;
-  final weiter = await showDialog<bool>(
-    context: context,
-    builder: (_) => AlertDialog(
-      title: Text('$result bereits erfasst'),
-      content: const Text(
-          'Dieser QR-Code existiert bereits. Möchtest du den bestehenden Eintrag bearbeiten?'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Abbrechen'),
+    if (vorhanden != null) {
+      final weiter = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Text('$result bereits erfasst'),
+          content: const Text(
+              'Möchtest du den bestehenden Eintrag bearbeiten?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Abbrechen'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Bearbeiten'),
+            ),
+          ],
         ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Bearbeiten'),
-        ),
-      ],
-    ),
-  );
-  if (weiter == true && mounted) {
-    Navigator.pushNamed(context, '/edit', arguments: vorhanden);
-  }
-  return;
-}
+      );
+      if (weiter == true && mounted) {
+        Navigator.pushNamed(context, '/edit', arguments: vorhanden);
+      }
+      return;
+    }
 
     setState(() {
       _qrCode = result;
@@ -153,17 +167,14 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
 
   Future<void> _fotoAufnehmen() async {
     if (_qrCode == null) return;
-
     final picker = ImagePicker();
     final bild = await picker.pickImage(
       source: kIsWeb ? ImageSource.gallery : ImageSource.camera,
       imageQuality: 90,
     );
     if (bild == null) return;
-
     final bytes = await bild.readAsBytes();
 
-    // GPS nur auf Mobil
     Position? position;
     if (!kIsWeb) {
       setState(() => _gpsLaedt = true);
@@ -202,10 +213,9 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                 '${position.latitude.toStringAsFixed(5)}, '
                 '${position.longitude.toStringAsFixed(5)}',
                 style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey.shade500,
-                  fontFamily: 'monospace',
-                ),
+                    fontSize: 11,
+                    color: Colors.grey.shade500,
+                    fontFamily: 'monospace'),
                 textAlign: TextAlign.center,
               ),
             ] else if (!kIsWeb) ...[
@@ -216,19 +226,13 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                       size: 16, color: Colors.orange.shade700),
                   const SizedBox(width: 4),
                   Text('GPS nicht verfügbar',
-                      style: TextStyle(color: Colors.orange.shade700)),
+                      style:
+                          TextStyle(color: Colors.orange.shade700)),
                 ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                'Koordinaten können später im\nBackoffice korrigiert werden',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-                textAlign: TextAlign.center,
-              ),
-            ] else ...[
+            ] else
               Text('Datei ausgewählt',
                   style: TextStyle(color: Colors.green.shade700)),
-            ],
           ],
         ),
         actions: [
@@ -280,6 +284,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
       _lat = null;
       _lng = null;
       _strassenId = null;
+      _bauartId = null;
       _laedt = false;
       _strassenListe = _allStrassen;
     });
@@ -289,27 +294,24 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
     if (_qrCode == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Bitte zuerst den QR-Code scannen'),
-          backgroundColor: Colors.orange,
-        ),
+            content: Text('Bitte zuerst den QR-Code scannen'),
+            backgroundColor: Colors.orange),
       );
       return;
     }
     if (_strassenId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Bitte eine Straße auswählen'),
-          backgroundColor: Colors.orange,
-        ),
+            content: Text('Bitte eine Straße auswählen'),
+            backgroundColor: Colors.orange),
       );
       return;
     }
     if (_fotoBytes == null && _foto == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Bitte zuerst ein Foto aufnehmen'),
-          backgroundColor: Colors.orange,
-        ),
+            content: Text('Bitte zuerst ein Foto aufnehmen'),
+            backgroundColor: Colors.orange),
       );
       return;
     }
@@ -325,6 +327,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                           ? null : _hausnummerCtrl.text.trim(),
         beschreibung: _beschreibungCtrl.text.trim().isEmpty
                           ? null : _beschreibungCtrl.text.trim(),
+        bauartId:     _bauartId,
         lat:          _lat ?? 0.0,
         lng:          _lng ?? 0.0,
         foto:         _foto,
@@ -332,24 +335,20 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
       );
 
       if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('$_qrCode gespeichert ✓'),
           backgroundColor: Colors.green.shade700,
         ),
       );
-
       _zuruecksetzen();
-
     } catch (e) {
       setState(() => _laedt = false);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Fehler: $e'),
-          backgroundColor: Colors.red.shade700,
-        ),
+            content: Text('Fehler: $e'),
+            backgroundColor: Colors.red.shade700),
       );
     }
   }
@@ -368,7 +367,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
 
-                  // SCHRITT 1: QR-Code scannen (nur mobil)
+                  // SCHRITT 1: QR-Code (nur mobil)
                   if (!kIsWeb) ...[
                     _schrittHeader('1', 'QR-Code scannen', _qrCode != null),
                     const SizedBox(height: 12),
@@ -386,11 +385,9 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                           ),
                           icon: _scanlaeuft
                               ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
+                                  width: 18, height: 18,
                                   child: CircularProgressIndicator(
-                                      strokeWidth: 2),
-                                )
+                                      strokeWidth: 2))
                               : const Icon(Icons.qr_code_scanner),
                           label: const Text('QR-Code scannen',
                               style: TextStyle(fontSize: 16)),
@@ -402,7 +399,8 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                         decoration: BoxDecoration(
                           color: Colors.green.shade50,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.green.shade300),
+                          border:
+                              Border.all(color: Colors.green.shade300),
                         ),
                         child: Row(
                           children: [
@@ -437,10 +435,8 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                   ],
 
                   // SCHRITT 2: Straße
-                  _schrittHeader(
-                      kIsWeb ? '1' : '2',
-                      'Straße auswählen',
-                      _strassenId != null),
+                  _schrittHeader(kIsWeb ? '1' : '2',
+                      'Straße auswählen', _strassenId != null),
                   const SizedBox(height: 12),
                   if (_laedtStrassen)
                     const LinearProgressIndicator()
@@ -450,7 +446,8 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                   const SizedBox(height: 24),
 
                   // SCHRITT 3: Details
-                  _schrittHeader(kIsWeb ? '2' : '3', 'Details (optional)', false),
+                  _schrittHeader(kIsWeb ? '2' : '3',
+                      'Details (optional)', false),
                   const SizedBox(height: 12),
 
                   TextFormField(
@@ -467,12 +464,38 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                     controller: _beschreibungCtrl,
                     decoration: const InputDecoration(
                       labelText: 'Beschreibung',
-                      hintText: 'z.B. neben Bushaltestelle, Richtung Park',
+                      hintText: 'z.B. neben Bushaltestelle',
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.notes),
                     ),
                     maxLines: 2,
                   ),
+                  const SizedBox(height: 12),
+
+                  // Bauart
+                  _laedtBauarten
+                      ? const LinearProgressIndicator()
+                      : DropdownButtonFormField<String>(
+                          value: _bauartId,
+                          decoration: const InputDecoration(
+                            labelText: 'Bauart (optional)',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.delete_outline),
+                          ),
+                          items: [
+                            const DropdownMenuItem(
+                              value: null,
+                              child: Text('— keine Angabe —'),
+                            ),
+                            ..._bauarten.map((b) =>
+                                DropdownMenuItem<String>(
+                                  value: b['id'] as String,
+                                  child: Text(b['beschreibung'] as String),
+                                )),
+                          ],
+                          onChanged: (v) =>
+                              setState(() => _bauartId = v),
+                        ),
 
                   const SizedBox(height: 24),
 
@@ -501,7 +524,8 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                               fit: StackFit.expand,
                               children: [
                                 ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius:
+                                      BorderRadius.circular(12),
                                   child: Image.memory(_fotoBytes!,
                                       fit: BoxFit.cover),
                                 ),
@@ -538,9 +562,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                                       kIsWeb
                                           ? Icons.upload_file
                                           : Icons.refresh,
-                                      color: Colors.white,
-                                      size: 18,
-                                    ),
+                                      color: Colors.white, size: 18),
                                   ),
                                 ),
                               ],
@@ -570,15 +592,6 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                                         : Colors.grey.shade500,
                                   ),
                                 ),
-                                if (kIsWeb || _qrCode != null)
-                                  Text(
-                                    kIsWeb
-                                        ? 'JPG, PNG unterstützt'
-                                        : 'GPS wird automatisch erfasst',
-                                    style: TextStyle(
-                                        color: Colors.grey.shade400,
-                                        fontSize: 12),
-                                  ),
                               ],
                             ),
                     ),
@@ -595,19 +608,18 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                         backgroundColor: Colors.green.shade700,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                            borderRadius: BorderRadius.circular(12)),
                       ),
                       icon: _laedt
                           ? const SizedBox(
-                              width: 20,
-                              height: 20,
+                              width: 20, height: 20,
                               child: CircularProgressIndicator(
-                                  color: Colors.white, strokeWidth: 2),
-                            )
+                                  color: Colors.white, strokeWidth: 2))
                           : const Icon(Icons.save),
                       label: Text(
-                        _laedt ? 'Wird gespeichert...' : 'Papierkorb speichern',
+                        _laedt
+                            ? 'Wird gespeichert...'
+                            : 'Papierkorb speichern',
                         style: const TextStyle(
                             fontSize: 16, fontWeight: FontWeight.bold),
                       ),
@@ -619,7 +631,6 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
             ),
           ),
 
-          // GPS-Ladeoverlay
           if (_gpsLaedt)
             Container(
               color: Colors.black45,
@@ -640,7 +651,8 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                       const SizedBox(height: 4),
                       Text('Max. 10 Sekunden',
                           style: TextStyle(
-                              fontSize: 12, color: Colors.grey.shade500)),
+                              fontSize: 12,
+                              color: Colors.grey.shade500)),
                     ],
                   ),
                 ),
@@ -655,8 +667,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
     return Row(
       children: [
         Container(
-          width: 28,
-          height: 28,
+          width: 28, height: 28,
           decoration: BoxDecoration(
             color: erledigt
                 ? Colors.green.shade600
@@ -731,14 +742,16 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                   Expanded(
                     child: Text(
                       _allStrassen.firstWhere(
-                          (s) => s['id'] == _strassenId)['name'] as String,
+                          (s) => s['id'] == _strassenId)['name']
+                          as String,
                       style: TextStyle(
                           color: Colors.green.shade800,
                           fontWeight: FontWeight.w500),
                     ),
                   ),
                   TextButton(
-                    onPressed: () => setState(() => _strassenId = null),
+                    onPressed: () =>
+                        setState(() => _strassenId = null),
                     style: TextButton.styleFrom(
                         padding: EdgeInsets.zero,
                         minimumSize: const Size(40, 24)),
@@ -753,7 +766,8 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
             child: _strassenListe.isEmpty
                 ? Center(
                     child: Text('Keine Treffer',
-                        style: TextStyle(color: Colors.grey.shade500)))
+                        style: TextStyle(
+                            color: Colors.grey.shade500)))
                 : ListView.builder(
                     itemCount: _strassenListe.length,
                     itemBuilder: (_, i) {
@@ -770,10 +784,11 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                             : null,
                         trailing: istAusgewaehlt
                             ? Icon(Icons.check,
-                                color: Colors.green.shade600, size: 18)
+                                color: Colors.green.shade600,
+                                size: 18)
                             : null,
-                        onTap: () =>
-                            setState(() => _strassenId = s['id'] as int),
+                        onTap: () => setState(
+                            () => _strassenId = s['id'] as int),
                       );
                     },
                   ),
@@ -785,7 +800,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
 }
 
 // ----------------------------------------------------------
-// QR-Scanner Dialog (nur mobil)
+// QR-Scanner Dialog
 // ----------------------------------------------------------
 class _QrScannerDialog extends StatefulWidget {
   const _QrScannerDialog();
@@ -835,8 +850,7 @@ class _QrScannerDialogState extends State<_QrScannerDialog> {
           ),
           Center(
             child: Container(
-              width: 250,
-              height: 250,
+              width: 250, height: 250,
               decoration: BoxDecoration(
                 border: Border.all(color: Colors.white, width: 2),
                 borderRadius: BorderRadius.circular(12),
@@ -844,16 +858,13 @@ class _QrScannerDialogState extends State<_QrScannerDialog> {
             ),
           ),
           Positioned(
-            bottom: 48,
-            left: 0,
-            right: 0,
+            bottom: 48, left: 0, right: 0,
             child: Text(
               'QR-Code-Aufkleber scannen',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.8),
-                fontSize: 16,
-              ),
+                  color: Colors.white.withValues(alpha: 0.8),
+                  fontSize: 16),
             ),
           ),
         ],

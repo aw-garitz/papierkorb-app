@@ -1,12 +1,14 @@
 class Papierkorb {
   final String id;
   final int nummer;
-  final String qrCode;       // z.B. "pk_0001" — primärer Identifier
+  final String qrCode;
   final int? strassenId;
   final String? strasseName;
   final String? stadtteil;
   final String? hausnummer;
   final String? beschreibung;
+  final String? bauartId;
+  final String? bauart;
   final double lat;
   final double lng;
   final String? fotoUrl;
@@ -23,6 +25,8 @@ class Papierkorb {
     this.stadtteil,
     this.hausnummer,
     this.beschreibung,
+    this.bauartId,
+    this.bauart,
     required this.lat,
     required this.lng,
     this.fotoUrl,
@@ -41,6 +45,8 @@ class Papierkorb {
       stadtteil:    json['stadtteil'] as String?,
       hausnummer:   json['hausnummer'] as String?,
       beschreibung: json['beschreibung'] as String?,
+      bauartId:     json['bauart_id'] as String?,
+      bauart:       json['bauart'] as String?,
       lat:          (json['lat'] as num).toDouble(),
       lng:          (json['lng'] as num).toDouble(),
       fotoUrl:      json['foto_url'] as String?,

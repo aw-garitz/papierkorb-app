@@ -23,11 +23,11 @@ class _EditScreenState extends State<EditScreen> {
   final _mapController = MapController();
 
   int? _strassenId;
+  String? _bauartId;
   final _hausnummerCtrl = TextEditingController();
   final _beschreibungCtrl = TextEditingController();
   String _status = 'aktiv';
 
-  // Foto — File für mobil, Bytes für Web
   File? _neuesFoto;
   Uint8List? _neuesFotoBytes;
 
@@ -37,7 +37,10 @@ class _EditScreenState extends State<EditScreen> {
   List<Map<String, dynamic>> _allStrassen = [];
   List<Map<String, dynamic>> _strassenListe = [];
   final _strassenSuchCtrl = TextEditingController();
+  List<Map<String, dynamic>> _bauarten = [];
+
   bool _laedtStrassen = true;
+  bool _laedtBauarten = true;
   bool _speichert = false;
 
   @override
@@ -45,6 +48,7 @@ class _EditScreenState extends State<EditScreen> {
     super.initState();
     final pk = widget.papierkorb;
     _strassenId = pk.strassenId;
+    _bauartId = pk.bauartId;
     _hausnummerCtrl.text = pk.hausnummer ?? '';
     _beschreibungCtrl.text = pk.beschreibung ?? '';
     _status = pk.status;
@@ -52,6 +56,7 @@ class _EditScreenState extends State<EditScreen> {
     _lng = pk.lng;
     _strassenSuchCtrl.addListener(_strassenFiltern);
     _ladeStrassen();
+    _ladeBauarten();
   }
 
   @override
@@ -72,6 +77,18 @@ class _EditScreenState extends State<EditScreen> {
       });
     } catch (_) {
       setState(() => _laedtStrassen = false);
+    }
+  }
+
+  Future<void> _ladeBauarten() async {
+    try {
+      final liste = await _service.bauarten();
+      setState(() {
+        _bauarten = liste;
+        _laedtBauarten = false;
+      });
+    } catch (_) {
+      setState(() => _laedtBauarten = false);
     }
   }
 
@@ -105,9 +122,8 @@ class _EditScreenState extends State<EditScreen> {
     if (_strassenId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Bitte eine Straße auswählen'),
-          backgroundColor: Colors.orange,
-        ),
+            content: Text('Bitte eine Straße auswählen'),
+            backgroundColor: Colors.orange),
       );
       return;
     }
@@ -116,39 +132,35 @@ class _EditScreenState extends State<EditScreen> {
 
     try {
       final aktualisiert = await _service.aktualisieren(
-        id:              widget.papierkorb.id,
-        qrCode:          widget.papierkorb.qrCode,
-        strassenId:      _strassenId!,
-        hausnummer:      _hausnummerCtrl.text.trim().isEmpty
-                             ? null : _hausnummerCtrl.text.trim(),
-        beschreibung:    _beschreibungCtrl.text.trim().isEmpty
-                             ? null : _beschreibungCtrl.text.trim(),
-        lat:             _lat,
-        lng:             _lng,
-        status:          _status,
-        neuesFoto:       _neuesFoto,
-        neuesFotoBytes:  _neuesFotoBytes,
+        id:             widget.papierkorb.id,
+        qrCode:         widget.papierkorb.qrCode,
+        strassenId:     _strassenId!,
+        hausnummer:     _hausnummerCtrl.text.trim().isEmpty
+                            ? null : _hausnummerCtrl.text.trim(),
+        beschreibung:   _beschreibungCtrl.text.trim().isEmpty
+                            ? null : _beschreibungCtrl.text.trim(),
+        bauartId:       _bauartId,
+        lat:            _lat,
+        lng:            _lng,
+        status:         _status,
+        neuesFoto:      _neuesFoto,
+        neuesFotoBytes: _neuesFotoBytes,
       );
 
       if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Gespeichert ✓'),
-          backgroundColor: Colors.green,
-        ),
+            content: Text('Gespeichert ✓'),
+            backgroundColor: Colors.green),
       );
-
       Navigator.pop(context, aktualisiert);
-
     } catch (e) {
       setState(() => _speichert = false);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Fehler: $e'),
-          backgroundColor: Colors.red.shade700,
-        ),
+            content: Text('Fehler: $e'),
+            backgroundColor: Colors.red.shade700),
       );
     }
   }
@@ -168,22 +180,19 @@ class _EditScreenState extends State<EditScreen> {
           FilledButton.icon(
             onPressed: _speichert ? null : _speichern,
             style: FilledButton.styleFrom(
-              backgroundColor: Colors.green.shade700,
-            ),
+                backgroundColor: Colors.green.shade700),
             icon: _speichert
                 ? const SizedBox(
-                    width: 16,
-                    height: 16,
+                    width: 16, height: 16,
                     child: CircularProgressIndicator(
-                        color: Colors.white, strokeWidth: 2),
-                  )
+                        color: Colors.white, strokeWidth: 2))
                 : const Icon(Icons.save, size: 18),
             label: Text(_speichert ? 'Speichert...' : 'Speichern'),
           ),
           const SizedBox(width: 12),
         ],
       ),
-      body: _laedtStrassen
+      body: (_laedtStrassen || _laedtBauarten)
           ? const Center(child: CircularProgressIndicator())
           : kIsWeb
               ? _webLayout()
@@ -191,9 +200,6 @@ class _EditScreenState extends State<EditScreen> {
     );
   }
 
-  // ----------------------------------------------------------
-  // WEB: zweigeteilt
-  // ----------------------------------------------------------
   Widget _webLayout() {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -211,9 +217,7 @@ class _EditScreenState extends State<EditScreen> {
             children: [
               _karte(),
               Positioned(
-                top: 12,
-                left: 0,
-                right: 0,
+                top: 12, left: 0, right: 0,
                 child: Center(
                   child: Container(
                     padding: const EdgeInsets.symmetric(
@@ -224,15 +228,14 @@ class _EditScreenState extends State<EditScreen> {
                     ),
                     child: const Text(
                       'Auf Karte tippen um Marker zu verschieben',
-                      style: TextStyle(color: Colors.white, fontSize: 13),
+                      style: TextStyle(
+                          color: Colors.white, fontSize: 13),
                     ),
                   ),
                 ),
               ),
               Positioned(
-                bottom: 12,
-                left: 0,
-                right: 0,
+                bottom: 12, left: 0, right: 0,
                 child: Center(
                   child: Container(
                     padding: const EdgeInsets.symmetric(
@@ -244,10 +247,9 @@ class _EditScreenState extends State<EditScreen> {
                     child: Text(
                       '${_lat.toStringAsFixed(6)}, ${_lng.toStringAsFixed(6)}',
                       style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                      ),
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontFamily: 'monospace'),
                     ),
                   ),
                 ),
@@ -259,9 +261,6 @@ class _EditScreenState extends State<EditScreen> {
     );
   }
 
-  // ----------------------------------------------------------
-  // MOBIL
-  // ----------------------------------------------------------
   Widget _mobilLayout() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -316,10 +315,9 @@ class _EditScreenState extends State<EditScreen> {
                         child: Text(
                           '${_lat.toStringAsFixed(5)}, ${_lng.toStringAsFixed(5)}',
                           style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontFamily: 'monospace',
-                          ),
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontFamily: 'monospace'),
                         ),
                       ),
                     ),
@@ -342,11 +340,9 @@ class _EditScreenState extends State<EditScreen> {
               ),
               icon: _speichert
                   ? const SizedBox(
-                      width: 20,
-                      height: 20,
+                      width: 20, height: 20,
                       child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2),
-                    )
+                          color: Colors.white, strokeWidth: 2))
                   : const Icon(Icons.save),
               label: Text(
                 _speichert ? 'Wird gespeichert...' : 'Speichern',
@@ -360,9 +356,6 @@ class _EditScreenState extends State<EditScreen> {
     );
   }
 
-  // ----------------------------------------------------------
-  // KARTE
-  // ----------------------------------------------------------
   Widget _karte() {
     return FlutterMap(
       mapController: _mapController,
@@ -385,7 +378,8 @@ class _EditScreenState extends State<EditScreen> {
         Opacity(
           opacity: 0.4,
           child: TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            urlTemplate:
+                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
             userAgentPackageName: 'de.stadt.papierkorb_app',
           ),
         ),
@@ -414,9 +408,6 @@ class _EditScreenState extends State<EditScreen> {
     );
   }
 
-  // ----------------------------------------------------------
-  // FORMULAR
-  // ----------------------------------------------------------
   Widget _formular() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -455,6 +446,28 @@ class _EditScreenState extends State<EditScreen> {
         ),
         const SizedBox(height: 16),
 
+        // Bauart
+        DropdownButtonFormField<String>(
+          value: _bauartId,
+          decoration: const InputDecoration(
+            labelText: 'Bauart (optional)',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.delete_outline),
+          ),
+          items: [
+            const DropdownMenuItem(
+              value: null,
+              child: Text('— keine Angabe —'),
+            ),
+            ..._bauarten.map((b) => DropdownMenuItem<String>(
+                  value: b['id'] as String,
+                  child: Text(b['beschreibung'] as String),
+                )),
+          ],
+          onChanged: (v) => setState(() => _bauartId = v),
+        ),
+        const SizedBox(height: 16),
+
         DropdownButtonFormField<String>(
           initialValue: _status,
           decoration: const InputDecoration(
@@ -465,7 +478,8 @@ class _EditScreenState extends State<EditScreen> {
           items: const [
             DropdownMenuItem(value: 'aktiv', child: Text('Aktiv')),
             DropdownMenuItem(value: 'defekt', child: Text('Defekt')),
-            DropdownMenuItem(value: 'entfernt', child: Text('Entfernt')),
+            DropdownMenuItem(
+                value: 'entfernt', child: Text('Entfernt')),
           ],
           onChanged: (v) => setState(() => _status = v!),
         ),
@@ -474,11 +488,9 @@ class _EditScreenState extends State<EditScreen> {
   }
 
   Widget _fotoBereich() {
-    // Vorschau-Widget abhängig von Plattform und ob neues Foto gewählt
     Widget vorschau;
 
     if (_neuesFotoBytes != null) {
-      // Neues Foto gewählt — Bytes anzeigen (funktioniert Web + Mobil)
       vorschau = Stack(
         fit: StackFit.expand,
         children: [
@@ -494,13 +506,13 @@ class _EditScreenState extends State<EditScreen> {
                 color: Colors.black54,
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: const Icon(Icons.refresh, color: Colors.white, size: 18),
+              child: const Icon(Icons.refresh,
+                  color: Colors.white, size: 18),
             ),
           ),
         ],
       );
     } else if (widget.papierkorb.fotoUrl != null) {
-      // Bestehendes Foto vom Server
       vorschau = Stack(
         fit: StackFit.expand,
         children: [
@@ -523,8 +535,10 @@ class _EditScreenState extends State<EditScreen> {
                   Icon(kIsWeb ? Icons.upload_file : Icons.camera_alt,
                       color: Colors.white, size: 28),
                   const SizedBox(height: 4),
-                  Text(kIsWeb ? 'Datei auswählen' : 'Foto ersetzen',
-                      style: const TextStyle(color: Colors.white, fontSize: 12)),
+                  Text(
+                    kIsWeb ? 'Datei auswählen' : 'Foto ersetzen',
+                    style: const TextStyle(
+                        color: Colors.white, fontSize: 12)),
                 ],
               ),
             ),
@@ -532,7 +546,6 @@ class _EditScreenState extends State<EditScreen> {
         ],
       );
     } else {
-      // Kein Foto vorhanden
       vorschau = Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -621,14 +634,16 @@ class _EditScreenState extends State<EditScreen> {
                     child: Text(
                       _allStrassen.firstWhere(
                           (s) => s['id'] == _strassenId,
-                          orElse: () => {'name': ''})['name'] as String,
+                          orElse: () => {'name': ''})['name']
+                          as String,
                       style: TextStyle(
                           color: Colors.green.shade800,
                           fontWeight: FontWeight.w500),
                     ),
                   ),
                   TextButton(
-                    onPressed: () => setState(() => _strassenId = null),
+                    onPressed: () =>
+                        setState(() => _strassenId = null),
                     style: TextButton.styleFrom(
                         padding: EdgeInsets.zero,
                         minimumSize: const Size(40, 24)),
@@ -643,7 +658,8 @@ class _EditScreenState extends State<EditScreen> {
             child: _strassenListe.isEmpty
                 ? Center(
                     child: Text('Keine Treffer',
-                        style: TextStyle(color: Colors.grey.shade500)))
+                        style: TextStyle(
+                            color: Colors.grey.shade500)))
                 : ListView.builder(
                     itemCount: _strassenListe.length,
                     itemBuilder: (_, i) {
@@ -656,14 +672,16 @@ class _EditScreenState extends State<EditScreen> {
                         title: Text(s['name'] as String),
                         subtitle: s['stadtteil'] != null
                             ? Text(s['stadtteil'] as String,
-                                style: const TextStyle(fontSize: 11))
+                                style:
+                                    const TextStyle(fontSize: 11))
                             : null,
                         trailing: istAusgewaehlt
                             ? Icon(Icons.check,
-                                color: Colors.green.shade600, size: 18)
+                                color: Colors.green.shade600,
+                                size: 18)
                             : null,
-                        onTap: () =>
-                            setState(() => _strassenId = s['id'] as int),
+                        onTap: () => setState(
+                            () => _strassenId = s['id'] as int),
                       );
                     },
                   ),

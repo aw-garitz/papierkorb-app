@@ -100,16 +100,12 @@ class PapierkorbService {
     final response = await supabase
         .from('meldungen_view')
         .select();
-
     return List<Map<String, dynamic>>.from(response);
   }
 
-  // Meldung erledigen:
-  // - leerung.meldung_erledigt = true
-  // - papierkörbe.status = 'aktiv'
   Future<void> meldungErledigen({
-    required String typ,         // 'leerung' oder 'status'
-    required String id,          // leerung.id oder papierkorb.id
+    required String typ,
+    required String id,
     required String papierkorbId,
   }) async {
     if (typ == 'leerung') {
@@ -119,8 +115,6 @@ class PapierkorbService {
           .update({'meldung_erledigt': true})
           .eq('id', id);
     }
-
-    // Status immer auf aktiv setzen
     await supabase
         .schema('waste')
         .from('papierkörbe')
@@ -138,6 +132,7 @@ class PapierkorbService {
     required int strassenId,
     String? hausnummer,
     String? beschreibung,
+    String? bauartId,
     required double lat,
     required double lng,
     File? foto,
@@ -159,6 +154,7 @@ class PapierkorbService {
           'strassen_id':  strassenId,
           'hausnummer':   hausnummer,
           'beschreibung': beschreibung,
+          'bauart_id':    bauartId,
           'lat':          lat,
           'lng':          lng,
           'foto_url':     fotoUrl,
@@ -183,6 +179,7 @@ class PapierkorbService {
     required int strassenId,
     String? hausnummer,
     String? beschreibung,
+    String? bauartId,
     required double lat,
     required double lng,
     required String status,
@@ -200,6 +197,7 @@ class PapierkorbService {
       'strassen_id':  strassenId,
       'hausnummer':   hausnummer,
       'beschreibung': beschreibung,
+      'bauart_id':    bauartId,
       'lat':          lat,
       'lng':          lng,
       'status':       status,
@@ -292,7 +290,18 @@ class PapierkorbService {
         .from('strassen')
         .select('id, name, stadtteil')
         .order('name', ascending: true);
+    return List<Map<String, dynamic>>.from(response);
+  }
 
+  // ----------------------------------------------------------
+  // BAUARTEN
+  // ----------------------------------------------------------
+
+  Future<List<Map<String, dynamic>>> bauarten() async {
+    final response = await supabase
+        .from('bauart')
+        .select('id, beschreibung')
+        .order('beschreibung', ascending: true);
     return List<Map<String, dynamic>>.from(response);
   }
 }
