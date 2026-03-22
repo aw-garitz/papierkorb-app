@@ -15,18 +15,17 @@ class FahrerScreen extends StatefulWidget {
 class _FahrerScreenState extends State<FahrerScreen>
     with SingleTickerProviderStateMixin {
   final _service = PapierkorbService();
-  final _mapController = MapController();
   final _suchCtrl = TextEditingController();
   late final TabController _tabController;
 
-  // Scanner
   final _scannerController = MobileScannerController();
   bool _verarbeitung = false;
 
-  // Liste + Karte
   List<Papierkorb> _alle = [];
   List<Papierkorb> _gefiltert = [];
   bool _laedt = true;
+
+  final _karteKey = GlobalKey<_KarteTabState>();
 
   @override
   void initState() {
@@ -35,7 +34,6 @@ class _FahrerScreenState extends State<FahrerScreen>
     _suchCtrl.addListener(_filtern);
     _laden();
 
-    // Scanner pausieren wenn nicht aktiv
     _tabController.addListener(() {
       if (_tabController.index == 0) {
         _scannerController.start();
@@ -61,6 +59,7 @@ class _FahrerScreenState extends State<FahrerScreen>
         _gefiltert = liste;
         _laedt = false;
       });
+      _karteKey.currentState?.aktualisiereMarker(liste);
     } catch (e) {
       setState(() => _laedt = false);
       if (!mounted) return;
@@ -77,28 +76,29 @@ class _FahrerScreenState extends State<FahrerScreen>
           ? _alle
           : _alle.where((pk) {
               final strasse = (pk.strasseName ?? '').toLowerCase();
-              final beschreibung =
-                  (pk.beschreibung ?? '').toLowerCase();
+              final beschreibung = (pk.beschreibung ?? '').toLowerCase();
               return strasse.contains(suche) ||
                   beschreibung.contains(suche) ||
-                  pk.qrCode.toLowerCase().contains(suche); 
+                  pk.qrCode.toLowerCase().contains(suche);
             }).toList();
     });
   }
 
-  // Liste → Karte mit Zoom 19
   void _zoomAufMarker(Papierkorb pk) {
     _tabController.animateTo(2);
     Future.delayed(const Duration(milliseconds: 300), () {
-      _mapController.move(LatLng(pk.lat, pk.lng), 19);
+      _karteKey.currentState?.zoomZu(pk);
     });
   }
 
   void _oeffneDetail(Papierkorb pk) {
-    Navigator.pushNamed(context, '/fahrer/detail', arguments: pk);
+    Navigator.pushNamed(
+      context,
+      '/fahrer/detail',
+      arguments: {'papierkorb': pk, 'readonly': true},
+    );
   }
 
-  // QR Scanner
   Future<void> _onQrGescannt(BarcodeCapture capture) async {
     if (_verarbeitung) return;
     final qrCode = capture.barcodes.firstOrNull?.rawValue;
@@ -114,7 +114,6 @@ class _FahrerScreenState extends State<FahrerScreen>
 
     try {
       final papierkorb = await _service.perQrCode(qrCode);
-
       if (!mounted) return;
 
       if (papierkorb == null) {
@@ -125,14 +124,13 @@ class _FahrerScreenState extends State<FahrerScreen>
       }
 
       await Navigator.pushNamed(
-  context,
-  '/fahrer/detail',
-  arguments: {'papierkorb': papierkorb, 'readonly': true},
-);
+        context,
+        '/fahrer/detail',
+        arguments: {'papierkorb': papierkorb, 'readonly': true},
+      );
 
       await _scannerController.start();
       setState(() => _verarbeitung = false);
-
     } catch (e) {
       if (!mounted) return;
       _zeigeFehler('Fehler: $e');
@@ -144,9 +142,8 @@ class _FahrerScreenState extends State<FahrerScreen>
   void _zeigeFehler(String nachricht) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(nachricht),
-        backgroundColor: Colors.red.shade700,
-      ),
+          content: Text(nachricht),
+          backgroundColor: Colors.red.shade700),
     );
   }
 
@@ -175,19 +172,20 @@ class _FahrerScreenState extends State<FahrerScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        physics: const NeverScrollableScrollPhysics(), // kein Wischen beim Scannen
+        physics: const NeverScrollableScrollPhysics(),
         children: [
           _buildScanner(),
           _buildListe(),
-          _buildKarte(),
+          _KarteTab(
+            key: _karteKey,
+            papierkorbListe: _alle,
+            onDetail: _oeffneDetail,
+          ),
         ],
       ),
     );
   }
 
-  // ----------------------------------------------------------
-  // TAB 1: SCANNER
-  // ----------------------------------------------------------
   Widget _buildScanner() {
     return Stack(
       children: [
@@ -206,22 +204,17 @@ class _FahrerScreenState extends State<FahrerScreen>
           ),
         ),
         Positioned(
-          bottom: 48,
-          left: 0,
-          right: 0,
+          bottom: 48, left: 0, right: 0,
           child: Text(
             'QR-Code in den Rahmen halten',
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
-              fontSize: 16,
-            ),
+                color: Colors.white.withValues(alpha: 0.8),
+                fontSize: 16),
           ),
         ),
-        // Taschenlampe
         Positioned(
-          top: 16,
-          right: 16,
+          top: 16, right: 16,
           child: IconButton(
             icon: const Icon(Icons.flashlight_on, color: Colors.white),
             onPressed: () => _scannerController.toggleTorch(),
@@ -231,16 +224,12 @@ class _FahrerScreenState extends State<FahrerScreen>
           Container(
             color: Colors.black54,
             child: const Center(
-              child: CircularProgressIndicator(color: Colors.white),
-            ),
+                child: CircularProgressIndicator(color: Colors.white)),
           ),
       ],
     );
   }
 
-  // ----------------------------------------------------------
-  // TAB 2: LISTE
-  // ----------------------------------------------------------
   Widget _buildListe() {
     return Column(
       children: [
@@ -249,7 +238,8 @@ class _FahrerScreenState extends State<FahrerScreen>
           child: TextField(
             controller: _suchCtrl,
             decoration: InputDecoration(
-              hintText: 'Nach Straße, Beschreibung oder QR-Code suchen...',
+              hintText:
+                  'Nach Straße, Beschreibung oder QR-Code suchen...',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: _suchCtrl.text.isNotEmpty
                   ? IconButton(
@@ -261,38 +251,30 @@ class _FahrerScreenState extends State<FahrerScreen>
                     )
                   : null,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+                  borderRadius: BorderRadius.circular(12)),
               contentPadding: const EdgeInsets.symmetric(
                   horizontal: 16, vertical: 12),
             ),
           ),
         ),
-
         if (_suchCtrl.text.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(left: 16, bottom: 8),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: Text(
-                '${_gefiltert.length} Treffer',
-                style: TextStyle(
-                    fontSize: 12, color: Colors.grey.shade600),
-              ),
+              child: Text('${_gefiltert.length} Treffer',
+                  style: TextStyle(
+                      fontSize: 12, color: Colors.grey.shade600)),
             ),
           ),
-
         Expanded(
           child: _laedt
               ? const Center(child: CircularProgressIndicator())
               : _gefiltert.isEmpty
                   ? Center(
-                      child: Text(
-                        'Keine Papierkörbe gefunden',
-                        style:
-                            TextStyle(color: Colors.grey.shade500),
-                      ),
-                    )
+                      child: Text('Keine Papierkörbe gefunden',
+                          style: TextStyle(
+                              color: Colors.grey.shade500)))
                   : ListView.separated(
                       itemCount: _gefiltert.length,
                       separatorBuilder: (_, __) =>
@@ -313,13 +295,10 @@ class _FahrerScreenState extends State<FahrerScreen>
                           ),
                           title: Text(pk.adresse),
                           subtitle: pk.beschreibung != null
-                              ? Text(
-                                  pk.beschreibung!,
+                              ? Text(pk.beschreibung!,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style:
-                                      const TextStyle(fontSize: 12),
-                                )
+                                  style: const TextStyle(fontSize: 12))
                               : null,
                           trailing: const Icon(Icons.my_location,
                               color: Colors.grey, size: 18),
@@ -331,61 +310,101 @@ class _FahrerScreenState extends State<FahrerScreen>
       ],
     );
   }
+}
 
-  // ----------------------------------------------------------
-  // TAB 3: KARTE
-  // ----------------------------------------------------------
-  Widget _buildKarte() {
-    return _laedt
-        ? const Center(child: CircularProgressIndicator())
-        : FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: _alle.isNotEmpty
-                  ? LatLng(_alle.first.lat, _alle.first.lng)
-                  : const LatLng(50.2007, 10.0760),
-              initialZoom: 14,
-            ),
-            children: [
-              TileLayer(
-  urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-  userAgentPackageName: 'de.stadt.papierkorb_app',
-),
-Opacity(
-  opacity: 0.4,
-  child: TileLayer(
-    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    userAgentPackageName: 'de.stadt.papierkorb_app',
-  ),
-),
-              MarkerLayer(
-                markers: _alle.map((pk) {
-                  return Marker(
-                    point: LatLng(pk.lat, pk.lng),
-                    width: 40,
-                    height: 40,
-                    child: GestureDetector(
-                      onTap: () => _oeffneDetail(pk),
-                      child: Tooltip(
-                        message: '${pk.qrCode} – ${pk.adresse}',
-                        child: const Icon(
-                          Icons.delete,
-                          color: Colors.yellow,
-                          size: 30,
-                          shadows: [
-                            Shadow(
-                              color: Colors.black45,
-                              blurRadius: 4,
-                              offset: Offset(1, 1),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
+// ----------------------------------------------------------
+// Karten-Tab mit AutomaticKeepAliveClientMixin
+// ----------------------------------------------------------
+class _KarteTab extends StatefulWidget {
+  final List<Papierkorb> papierkorbListe;
+  final void Function(Papierkorb) onDetail;
+
+  const _KarteTab({
+    super.key,
+    required this.papierkorbListe,
+    required this.onDetail,
+  });
+
+  @override
+  State<_KarteTab> createState() => _KarteTabState();
+}
+
+class _KarteTabState extends State<_KarteTab>
+    with AutomaticKeepAliveClientMixin {
+  final _mapController = MapController();
+  late List<Papierkorb> _papierkorbListe;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _papierkorbListe = widget.papierkorbListe;
+  }
+
+  void aktualisiereMarker(List<Papierkorb> liste) {
+    setState(() => _papierkorbListe = liste);
+  }
+
+  void zoomZu(Papierkorb pk) {
+    _mapController.move(LatLng(pk.lat, pk.lng), 19);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context); // Pflicht bei AutomaticKeepAliveClientMixin
+
+    return FlutterMap(
+      mapController: _mapController,
+      options: MapOptions(
+        initialCenter: _papierkorbListe.isNotEmpty
+            ? LatLng(
+                _papierkorbListe.first.lat, _papierkorbListe.first.lng)
+            : const LatLng(50.2007, 10.0760),
+        initialZoom: 14,
+      ),
+      children: [
+        TileLayer(
+          urlTemplate:
+              'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+          userAgentPackageName: 'de.stadt.papierkorb_app',
+        ),
+        Opacity(
+          opacity: 0.4,
+          child: TileLayer(
+            urlTemplate:
+                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'de.stadt.papierkorb_app',
+          ),
+        ),
+        MarkerLayer(
+          markers: _papierkorbListe.map((pk) {
+            return Marker(
+              point: LatLng(pk.lat, pk.lng),
+              width: 40,
+              height: 40,
+              child: GestureDetector(
+                onTap: () => widget.onDetail(pk),
+                child: Tooltip(
+                  message: '${pk.qrCode} – ${pk.adresse}',
+                  child: const Icon(
+                    Icons.delete,
+                    color: Colors.orange,
+                    size: 30,
+                    shadows: [
+                      Shadow(
+                          color: Colors.black45,
+                          blurRadius: 4,
+                          offset: Offset(1, 1)),
+                    ],
+                  ),
+                ),
               ),
-            ],
-          );
+            );
+          }).toList(),
+        ),
+      ],
+    );
   }
 }

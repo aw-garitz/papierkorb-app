@@ -16,7 +16,6 @@ class BackofficeScreen extends StatefulWidget {
 class _BackofficeScreenState extends State<BackofficeScreen>
     with SingleTickerProviderStateMixin {
   final _service = PapierkorbService();
-  final _mapController = MapController();
   final _suchCtrl = TextEditingController();
   late final TabController _tabController;
 
@@ -24,6 +23,9 @@ class _BackofficeScreenState extends State<BackofficeScreen>
   List<Papierkorb> _gefiltert = [];
   bool _laedt = true;
   int _meldungsAnzahl = 0;
+
+  // GlobalKey um auf den Karten-Tab zuzugreifen (zoom to marker)
+  final _karteKey = GlobalKey<_KarteTabState>();
 
   @override
   void initState() {
@@ -56,6 +58,7 @@ class _BackofficeScreenState extends State<BackofficeScreen>
         _meldungsAnzahl = meldungen.length;
         _laedt = false;
       });
+      _karteKey.currentState?.aktualisiereMarker(liste);
     } catch (e) {
       setState(() => _laedt = false);
       if (!mounted) return;
@@ -86,7 +89,7 @@ class _BackofficeScreenState extends State<BackofficeScreen>
   void _zoomAufMarker(Papierkorb pk) {
     _tabController.animateTo(1);
     Future.delayed(const Duration(milliseconds: 300), () {
-      _mapController.move(LatLng(pk.lat, pk.lng), 19);
+      _karteKey.currentState?.zoomZu(pk);
     });
   }
 
@@ -96,72 +99,6 @@ class _BackofficeScreenState extends State<BackofficeScreen>
       '/fahrer/detail',
       arguments: {'papierkorb': pk, 'readonly': false},
     );
-  }
-
-  Future<void> _onKarteLongPress(TapPosition _, LatLng punkt) async {
-    Papierkorb? naechster;
-    double minAbstand = double.infinity;
-    const distance = Distance();
-
-    for (final pk in _alle) {
-      final d = distance(LatLng(pk.lat, pk.lng), punkt);
-      if (d < minAbstand && d < 50) {
-        minAbstand = d;
-        naechster = pk;
-      }
-    }
-
-    if (naechster == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Kein Papierkorb in der Nähe — näher heranzoomen')),
-      );
-      return;
-    }
-
-    final bestaetigt = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text('${naechster!.qrCode} verschieben?'),
-        content: Text(
-          'Neue Position:\n'
-          '${punkt.latitude.toStringAsFixed(6)}, '
-          '${punkt.longitude.toStringAsFixed(6)}',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Abbrechen'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Verschieben'),
-          ),
-        ],
-      ),
-    );
-
-    if (bestaetigt != true) return;
-
-    try {
-      await _service.geodatenAktualisieren(
-        id:  naechster.id,
-        lat: punkt.latitude,
-        lng: punkt.longitude,
-      );
-      await _laden();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Position aktualisiert ✓'),
-            backgroundColor: Colors.green),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Fehler: $e')),
-      );
-    }
   }
 
   @override
@@ -221,7 +158,13 @@ class _BackofficeScreenState extends State<BackofficeScreen>
               controller: _tabController,
               children: [
                 _buildListe(),
-                _buildKarte(),
+                _KarteTab(
+                  key: _karteKey,
+                  papierkoerbe: _alle,
+                  service: _service,
+                  onDetail: _oeffneDetail,
+                  onNeuLaden: _laden,
+                ),
                 const QrGeneratorScreen(),
                 const MeldungenScreen(),
               ],
@@ -276,8 +219,6 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (_, i) {
                     final pk = _gefiltert[i];
-
-                    // Subtitle: Beschreibung · Bauart
                     final subteileParts = [
                       if (pk.beschreibung != null) pk.beschreibung!,
                       if (pk.bauart != null) pk.bauart!,
@@ -323,16 +264,132 @@ class _BackofficeScreenState extends State<BackofficeScreen>
       ],
     );
   }
+}
 
-  Widget _buildKarte() {
+// ----------------------------------------------------------
+// Karten-Tab als eigenes StatefulWidget mit KeepAlive
+// ----------------------------------------------------------
+class _KarteTab extends StatefulWidget {
+  final List<Papierkorb> papierkoerbe;
+  final PapierkorbService service;
+  final void Function(Papierkorb) onDetail;
+  final Future<void> Function() onNeuLaden;
+
+  const _KarteTab({
+    super.key,
+    required this.papierkoerbe,
+    required this.service,
+    required this.onDetail,
+    required this.onNeuLaden,
+  });
+
+  @override
+  State<_KarteTab> createState() => _KarteTabState();
+}
+
+class _KarteTabState extends State<_KarteTab>
+    with AutomaticKeepAliveClientMixin {
+  final _mapController = MapController();
+  late List<Papierkorb> _papierkoerbe;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _papierkoerbe = widget.papierkoerbe;
+  }
+
+  void aktualisiereMarker(List<Papierkorb> liste) {
+    setState(() => _papierkoerbe = liste);
+  }
+
+  void zoomZu(Papierkorb pk) {
+    _mapController.move(LatLng(pk.lat, pk.lng), 19);
+  }
+
+  Future<void> _onLongPress(TapPosition _, LatLng punkt) async {
+    Papierkorb? naechster;
+    double minAbstand = double.infinity;
+    const distance = Distance();
+
+    for (final pk in _papierkoerbe) {
+      final d = distance(LatLng(pk.lat, pk.lng), punkt);
+      if (d < minAbstand && d < 50) {
+        minAbstand = d;
+        naechster = pk;
+      }
+    }
+
+    if (naechster == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content:
+                Text('Kein Papierkorb in der Nähe — näher heranzoomen')),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    final bestaetigt = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('${naechster!.qrCode} verschieben?'),
+        content: Text(
+          'Neue Position:\n'
+          '${punkt.latitude.toStringAsFixed(6)}, '
+          '${punkt.longitude.toStringAsFixed(6)}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Verschieben'),
+          ),
+        ],
+      ),
+    );
+
+    if (bestaetigt != true) return;
+
+    try {
+      await widget.service.geodatenAktualisieren(
+        id:  naechster.id,
+        lat: punkt.latitude,
+        lng: punkt.longitude,
+      );
+      await widget.onNeuLaden();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Position aktualisiert ✓'),
+            backgroundColor: Colors.green),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Fehler: $e')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context); // Pflicht bei AutomaticKeepAliveClientMixin
+
     return FlutterMap(
       mapController: _mapController,
       options: MapOptions(
-        initialCenter: _alle.isNotEmpty
-            ? LatLng(_alle.first.lat, _alle.first.lng)
+        initialCenter: _papierkoerbe.isNotEmpty
+            ? LatLng(_papierkoerbe.first.lat, _papierkoerbe.first.lng)
             : const LatLng(50.2007, 10.0760),
         initialZoom: 14,
-        onLongPress: _onKarteLongPress,
+        onLongPress: _onLongPress,
       ),
       children: [
         TileLayer(
@@ -343,18 +400,19 @@ class _BackofficeScreenState extends State<BackofficeScreen>
         Opacity(
           opacity: 0.4,
           child: TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            urlTemplate:
+                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
             userAgentPackageName: 'de.stadt.papierkorb_app',
           ),
         ),
         MarkerLayer(
-          markers: _alle.map((pk) {
+          markers: _papierkoerbe.map((pk) {
             return Marker(
               point: LatLng(pk.lat, pk.lng),
               width: 40,
               height: 40,
               child: GestureDetector(
-                onTap: () => _oeffneDetail(pk),
+                onTap: () => widget.onDetail(pk),
                 child: Tooltip(
                   message: '${pk.qrCode} – ${pk.adresse}',
                   child: Icon(
