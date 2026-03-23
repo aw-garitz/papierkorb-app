@@ -230,6 +230,13 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                           TextStyle(color: Colors.orange.shade700)),
                 ],
               ),
+              const SizedBox(height: 4),
+              Text(
+                'Betriebsstandort wird als Platzhalter\neingetragen. Bitte im Backoffice\nauf der Karte korrigieren.',
+                style: TextStyle(
+                    fontSize: 12, color: Colors.grey.shade500),
+                textAlign: TextAlign.center,
+              ),
             ] else
               Text('Datei ausgewählt',
                   style: TextStyle(color: Colors.green.shade700)),
@@ -328,8 +335,8 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
         beschreibung: _beschreibungCtrl.text.trim().isEmpty
                           ? null : _beschreibungCtrl.text.trim(),
         bauartId:     _bauartId,
-        lat:          _lat ?? 0.0,
-        lng:          _lng ?? 0.0,
+        lat:          _lat ?? 50.18694,
+        lng:          _lng ?? 10.07426,
         foto:         _foto,
         fotoBytes:    _fotoBytes,
       );

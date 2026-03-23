@@ -1,10 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:excel/excel.dart';
 import 'package:intl/intl.dart';
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
+import 'package:papierkorb_app/utils/download_helper.dart';
+
 import '../../models/papierkorb.dart';
 import '../../services/papierkorb_service.dart';
 import 'qr_generator_screen.dart';
@@ -262,18 +264,11 @@ class _BackofficeScreenState extends State<BackofficeScreen>
         sheet.setColumnWidth(i, breiten[i]);
       }
 
-      // Download im Browser
-      final bytes = excel.encode();
-      if (bytes == null) throw Exception('Excel konnte nicht erstellt werden');
-
-      final blob = html.Blob([bytes],
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      final url = html.Url.createObjectUrlFromBlob(blob);
-      final anchor = html.AnchorElement(href: url)
-        ..setAttribute('download', 'papierkörbe_$jetzt.xlsx')
-        ..click();
-      html.Url.revokeObjectUrl(url);
-
+      // Download
+      final rohdaten = excel.encode();
+if (rohdaten == null) throw Exception('Excel konnte nicht erstellt werden');
+final bytes = Uint8List.fromList(rohdaten);
+downloadDatei(bytes, 'papierkoerbe_$jetzt.xlsx');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
