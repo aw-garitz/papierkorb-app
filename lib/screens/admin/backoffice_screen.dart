@@ -17,11 +17,12 @@ class _BackofficeScreenState extends State<BackofficeScreen>
   final _service = PapierkorbService();
   final _suchCtrl = TextEditingController();
   late final TabController _tabController;
+  final _karteKey = GlobalKey<_KarteTabState>();
 
   List<Papierkorb> _alle = [];
   List<Papierkorb> _gefiltert = [];
   bool _laedt = true;
-  final _karteKey = GlobalKey<_KarteTabState>();
+  String _filterStatus = 'alle'; // 'alle', 'geleert', 'nicht_geleert'
 
   @override
   void initState() {
@@ -44,6 +45,19 @@ class _BackofficeScreenState extends State<BackofficeScreen>
     setState(() => _laedt = true);
     try {
       final liste = await _service.alleAktiven();
+      // Sortieren: 1. nach Stadtteil, 2. nach Straßennamen
+      liste.sort((a, b) {
+        // Stadtteil vergleichen (null kommt am Ende)
+        final stadtteilA = a.stadtteil?.toLowerCase() ?? '';
+        final stadtteilB = b.stadtteil?.toLowerCase() ?? '';
+        final stadtteilCompare = stadtteilA.compareTo(stadtteilB);
+        if (stadtteilCompare != 0) return stadtteilCompare;
+
+        // Bei gleichem Stadtteil nach Straße sortieren
+        final strasseA = a.adresse.toLowerCase();
+        final strasseB = b.adresse.toLowerCase();
+        return strasseA.compareTo(strasseB);
+      });
       if (mounted) {
         setState(() {
           _alle = liste;
@@ -62,10 +76,28 @@ class _BackofficeScreenState extends State<BackofficeScreen>
     final suche = _suchCtrl.text.toLowerCase();
     setState(() {
       _gefiltert = _alle.where((pk) {
+        // Text-Suche
         final matchAdresse = pk.adresse.toLowerCase().contains(suche);
         final matchNummer = pk.nummer.toString().contains(suche);
         final matchStadt = (pk.stadtteil ?? "").toLowerCase().contains(suche);
-        return matchAdresse || matchNummer || matchStadt;
+        final textMatch = matchAdresse || matchNummer || matchStadt;
+
+        // Status-Filter
+        bool statusMatch = true;
+        switch (_filterStatus) {
+          case 'geleert':
+            statusMatch = pk.heuteGeleert;
+            break;
+          case 'nicht_geleert':
+            statusMatch = !pk.heuteGeleert;
+            break;
+          case 'alle':
+          default:
+            statusMatch = true;
+            break;
+        }
+
+        return textMatch && statusMatch;
       }).toList();
     });
   }
@@ -86,7 +118,7 @@ class _BackofficeScreenState extends State<BackofficeScreen>
           controller: _tabController,
           tabs: const [
             Tab(icon: Icon(Icons.list), text: 'Liste'),
-            Tab(icon: Icon(Icons.layers), text: 'Hybrid-Karte'),
+            Tab(icon: Icon(Icons.layers), text: 'Karte'),
             Tab(icon: Icon(Icons.warning_amber), text: 'Meldungen'),
           ],
         ),
@@ -114,6 +146,60 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                 const MeldungenScreen(),
               ],
             ),
+      floatingActionButton: _tabController.index == 0
+          ? Column(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                // Filter-Buttons
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      _buildFilterChip('alle', 'Alle'),
+                      const SizedBox(width: 8),
+                      _buildFilterChip('geleert', 'Geleert'),
+                      const SizedBox(width: 8),
+                      _buildFilterChip('nicht_geleert', 'Nicht geleert'),
+                    ],
+                  ),
+                ),
+                // FloatingActionButton
+                FloatingActionButton.extended(
+                  onPressed: () async {
+                    final res =
+                        await Navigator.pushNamed(context, '/admin/einmessen');
+                    if (res == true) _laden();
+                  },
+                  icon: const Icon(Icons.add),
+                  label: const Text('Neuer Papierkorb'),
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                ),
+              ],
+            )
+          : null,
+    );
+  }
+
+  Widget _buildFilterChip(String value, String label) {
+    final isSelected = _filterStatus == value;
+    return FilterChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (selected) {
+        setState(() {
+          _filterStatus = value;
+          _filtern();
+        });
+      },
+      backgroundColor: Colors.grey.shade200,
+      selectedColor: Colors.blue.shade100,
+      checkmarkColor: Colors.blue,
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.blue.shade800 : Colors.grey.shade700,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+      ),
     );
   }
 
@@ -171,7 +257,8 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text("${pk.adresse} ${pk.hausnummer ?? ''}",
+                                  Text(
+                                      "${pk.adresse} ${pk.hausnummer ?? ''}${pk.stadtteil != null ? ' - ${pk.stadtteil}' : ''}",
                                       style: const TextStyle(
                                           fontWeight: FontWeight.bold,
                                           fontSize: 16)),

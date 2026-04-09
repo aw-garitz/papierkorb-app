@@ -1,9 +1,8 @@
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/papierkorb.dart';
 import '../../services/papierkorb_service.dart';
@@ -82,12 +81,20 @@ class _EditScreenState extends State<EditScreen> {
   }
 
   Future<void> _fotoWaehlen() async {
-    final picker = ImagePicker();
-    final bild =
-        await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
-    if (bild == null) return;
-    final bytes = await bild.readAsBytes();
-    setState(() => _neuesFotoBytes = bytes);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        final bytes = await file.bytes;
+        setState(() => _neuesFotoBytes = bytes);
+      }
+    } catch (e) {
+      debugPrint("Fehler beim Bildauswahl: $e");
+    }
   }
 
   Future<void> _speichern() async {
@@ -160,6 +167,22 @@ class _EditScreenState extends State<EditScreen> {
                 _buildFormular(),
                 const SizedBox(height: 24),
                 _buildActions(),
+                const SizedBox(height: 16),
+                // Abbrechen-Button unten links
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close, size: 18),
+                    label: const Text('Abbrechen'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.red.shade700,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 12),
+                      minimumSize: const Size(double.infinity, 48),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -207,35 +230,91 @@ class _EditScreenState extends State<EditScreen> {
                             constraints: const BoxConstraints(maxHeight: 250),
                             child: AspectRatio(
                               aspectRatio: 3 / 4, // Hochformat
-                              child: InkWell(
-                                onTap: _fotoWaehlen,
-                                child: Container(
-                                  width: double.infinity,
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.shade100,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border:
-                                        Border.all(color: Colors.grey.shade300),
+                              child: Stack(
+                                children: [
+                                  // Aktuelles Bild
+                                  Container(
+                                    width: double.infinity,
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.shade100,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                          color: Colors.grey.shade300),
+                                    ),
+                                    child: _neuesFotoBytes != null
+                                        ? ClipRRect(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            child: Image.memory(
+                                                _neuesFotoBytes!,
+                                                fit: BoxFit.cover))
+                                        : (widget.papierkorb.fotoUrl != null
+                                            ? ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                                child: CachedNetworkImage(
+                                                    imageUrl: widget
+                                                        .papierkorb.fotoUrl!,
+                                                    fit: BoxFit.cover))
+                                            : const Center(
+                                                child: Icon(Icons.add_a_photo,
+                                                    size: 40,
+                                                    color: Colors.grey))),
                                   ),
-                                  child: _neuesFotoBytes != null
-                                      ? ClipRRect(
-                                          borderRadius:
-                                              BorderRadius.circular(12),
-                                          child: Image.memory(_neuesFotoBytes!,
-                                              fit: BoxFit.cover))
-                                      : (widget.papierkorb.fotoUrl != null
-                                          ? ClipRRect(
+                                  // Bearbeitungs-Buttons
+                                  Positioned(
+                                    bottom: 8,
+                                    right: 8,
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // Neues Foto
+                                        Container(
+                                          decoration: BoxDecoration(
+                                            color: Colors.blue.withOpacity(0.9),
+                                            borderRadius:
+                                                BorderRadius.circular(20),
+                                          ),
+                                          child: IconButton(
+                                            onPressed: _fotoWaehlen,
+                                            icon: const Icon(Icons.folder_open,
+                                                size: 16, color: Colors.white),
+                                            tooltip:
+                                                'Bild aus Ordner auswählen',
+                                            constraints: const BoxConstraints(
+                                                minWidth: 36, minHeight: 36),
+                                            padding: const EdgeInsets.all(8),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        // Foto zurücksetzen (wenn neues ausgewählt)
+                                        if (_neuesFotoBytes != null)
+                                          Container(
+                                            decoration: BoxDecoration(
+                                              color: Colors.orange
+                                                  .withOpacity(0.9),
                                               borderRadius:
-                                                  BorderRadius.circular(12),
-                                              child: CachedNetworkImage(
-                                                  imageUrl: widget
-                                                      .papierkorb.fotoUrl!,
-                                                  fit: BoxFit.cover))
-                                          : const Center(
-                                              child: Icon(Icons.add_a_photo,
-                                                  size: 40,
-                                                  color: Colors.grey))),
-                                ),
+                                                  BorderRadius.circular(20),
+                                            ),
+                                            child: IconButton(
+                                              onPressed: () {
+                                                setState(() {
+                                                  _neuesFotoBytes = null;
+                                                });
+                                              },
+                                              icon: const Icon(Icons.refresh,
+                                                  size: 16,
+                                                  color: Colors.white),
+                                              tooltip: 'Zurück zum Original',
+                                              constraints: const BoxConstraints(
+                                                  minWidth: 36, minHeight: 36),
+                                              padding: const EdgeInsets.all(8),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
@@ -484,14 +563,6 @@ class _EditScreenState extends State<EditScreen> {
           ),
         ),
         const SizedBox(width: 12),
-        OutlinedButton.icon(
-          onPressed: () => Navigator.pop(context),
-          icon: const Icon(Icons.cancel),
-          label: const Text('Abbrechen'),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-          ),
-        ),
       ],
     );
   }

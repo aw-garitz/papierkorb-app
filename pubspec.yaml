@@ -29,6 +29,7 @@ dependencies:
 
   # Foto aufnehmen + komprimieren
   image_picker: ^1.1.2
+  file_picker: ^8.0.5
   flutter_image_compress: ^2.3.0
 
   # Umgebungsvariablen
