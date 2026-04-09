@@ -13,7 +13,6 @@ class StartScreen extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-
               // Logo / Titel
               Icon(Icons.delete_outline,
                   size: 72, color: Colors.green.shade700),
@@ -28,7 +27,7 @@ class StartScreen extends StatelessWidget {
                 ),
               ),
               Text(
-                'Stadtverwaltung',
+                'Servicebetrieb',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 14,
@@ -65,8 +64,8 @@ class StartScreen extends StatelessWidget {
               SizedBox(
                 height: 64,
                 child: OutlinedButton.icon(
-                  onPressed: () =>
-                      Navigator.pushReplacementNamed(context, '/admin/einmessen'),
+                  onPressed: () => Navigator.pushReplacementNamed(
+                      context, '/admin/einmessen'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.green.shade700,
                     side: BorderSide(color: Colors.green.shade300, width: 2),

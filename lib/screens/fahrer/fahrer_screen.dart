@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../models/papierkorb.dart';
 import '../../services/papierkorb_service.dart';
+import '../../utils/gps_utils.dart';
+import 'detail_screen.dart';
 
 class FahrerScreen extends StatefulWidget {
   const FahrerScreen({super.key});
@@ -18,9 +20,7 @@ class _FahrerScreenState extends State<FahrerScreen>
   final _suchCtrl = TextEditingController();
   late final TabController _tabController;
 
-  final _scannerController = MobileScannerController();
-  bool _verarbeitung = false;
-
+  Position? _aktuellePosition;
   List<Papierkorb> _alle = [];
   List<Papierkorb> _gefiltert = [];
   bool _laedt = true;
@@ -30,300 +30,188 @@ class _FahrerScreenState extends State<FahrerScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() => setState(() {}));
     _suchCtrl.addListener(_filtern);
-    _laden();
-
-    _tabController.addListener(() {
-      if (_tabController.index == 0) {
-        _scannerController.start();
-      } else {
-        _scannerController.stop();
-      }
-    });
+    _initialisiereDaten();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     _suchCtrl.dispose();
-    _scannerController.dispose();
     super.dispose();
   }
 
-  Future<void> _laden() async {
+  Future<void> _initialisiereDaten() async {
+    setState(() => _laedt = true);
     try {
+      Position pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high);
+
       final liste = await _service.alleAktiven();
-      setState(() {
-        _alle = liste;
-        _gefiltert = liste;
-        _laedt = false;
-      });
-      _karteKey.currentState?.aktualisiereMarker(liste);
+
+      if (mounted) {
+        setState(() {
+          _aktuellePosition = pos;
+          _alle = liste;
+          _gefiltert = liste; // Wichtig: Gefilterte Liste setzen!
+          _laedt = false;
+        });
+        // Karte aktualisieren
+        _karteKey.currentState?.aktualisiereMarker(liste, pos);
+      }
     } catch (e) {
-      setState(() => _laedt = false);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Fehler: $e')),
-      );
+      debugPrint("Initialisierungsfehler: $e");
+      final liste = await _service.alleAktiven();
+      if (mounted) {
+        setState(() {
+          _alle = liste;
+          _gefiltert = liste; // Wichtig: Gefilterte Liste setzen!
+          _laedt = false;
+        });
+        // Karte aktualisieren (ohne GPS-Position)
+        _karteKey.currentState?.aktualisiereMarker(liste, null);
+      }
     }
   }
 
   void _filtern() {
     final suche = _suchCtrl.text.toLowerCase();
     setState(() {
-      _gefiltert = suche.isEmpty
-          ? _alle
-          : _alle.where((pk) {
-              final strasse = (pk.strasseName ?? '').toLowerCase();
-              final beschreibung = (pk.beschreibung ?? '').toLowerCase();
-              return strasse.contains(suche) ||
-                  beschreibung.contains(suche) ||
-                  pk.qrCode.toLowerCase().contains(suche);
-            }).toList();
+      _gefiltert = _alle.where((pk) {
+        final matchAdresse = pk.adresse.toLowerCase().contains(suche);
+        final matchNummer = pk.nummer.toString().contains(suche);
+        final matchStrasse =
+            (pk.strassenName ?? "").toLowerCase().contains(suche);
+        final matchStadtteil =
+            (pk.stadtteil ?? "").toLowerCase().contains(suche);
+        return matchAdresse || matchNummer || matchStrasse || matchStadtteil;
+      }).toList();
     });
   }
 
-  void _zoomAufMarker(Papierkorb pk) {
-    _tabController.animateTo(2);
-    Future.delayed(const Duration(milliseconds: 300), () {
-      _karteKey.currentState?.zoomZu(pk);
+  bool _istHeuteGeleert(Papierkorb pk) {
+    return pk.heuteGeleert;
+  }
+
+  void _geheZuPapierkorbAufKarte(Papierkorb pk) {
+    _tabController.animateTo(1);
+    // Erhöhter Delay für saubere Zentrierung nach Tab-Wechsel
+    Future.delayed(const Duration(milliseconds: 350), () {
+      _karteKey.currentState?.fokussierePapierkorb(pk);
     });
-  }
-
-  void _oeffneDetail(Papierkorb pk) {
-    Navigator.pushNamed(
-      context,
-      '/fahrer/detail',
-      arguments: {'papierkorb': pk, 'readonly': true},
-    );
-  }
-
-  Future<void> _onQrGescannt(BarcodeCapture capture) async {
-    if (_verarbeitung) return;
-    final qrCode = capture.barcodes.firstOrNull?.rawValue;
-    if (qrCode == null) return;
-
-    if (!RegExp(r'^pk_\d{4}$').hasMatch(qrCode)) {
-      _zeigeFehler('Ungültiger QR-Code: $qrCode');
-      return;
-    }
-
-    setState(() => _verarbeitung = true);
-    await _scannerController.stop();
-
-    try {
-      final papierkorb = await _service.perQrCode(qrCode);
-      if (!mounted) return;
-
-      if (papierkorb == null) {
-        _zeigeFehler('$qrCode nicht gefunden');
-        await _scannerController.start();
-        setState(() => _verarbeitung = false);
-        return;
-      }
-
-      await Navigator.pushNamed(
-        context,
-        '/fahrer/detail',
-        arguments: {'papierkorb': papierkorb, 'readonly': true},
-      );
-
-      await _scannerController.start();
-      setState(() => _verarbeitung = false);
-    } catch (e) {
-      if (!mounted) return;
-      _zeigeFehler('Fehler: $e');
-      await _scannerController.start();
-      setState(() => _verarbeitung = false);
-    }
-  }
-
-  void _zeigeFehler(String nachricht) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-          content: Text(nachricht),
-          backgroundColor: Colors.red.shade700),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Papierkörbe'),
+        title: Text('Abholer-Tour (${_gefiltert.length})'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () {
-              setState(() => _laedt = true);
-              _laden();
-            },
+            icon: const Icon(Icons.gps_fixed),
+            onPressed: _initialisiereDaten,
           ),
         ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
-            Tab(icon: Icon(Icons.qr_code_scanner), text: 'Scanner'),
             Tab(icon: Icon(Icons.list), text: 'Liste'),
-            Tab(icon: Icon(Icons.map_outlined), text: 'Karte'),
+            Tab(icon: Icon(Icons.map), text: 'Karte'),
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        physics: const NeverScrollableScrollPhysics(),
-        children: [
-          _buildScanner(),
-          _buildListe(),
-          _KarteTab(
-            key: _karteKey,
-            papierkorbListe: _alle,
-            onDetail: _oeffneDetail,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildScanner() {
-    return Stack(
-      children: [
-        MobileScanner(
-          controller: _scannerController,
-          onDetect: _onQrGescannt,
-        ),
-        Center(
-          child: Container(
-            width: 250,
-            height: 250,
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.white, width: 2),
-              borderRadius: BorderRadius.circular(12),
+      body: _laedt
+          ? const Center(child: CircularProgressIndicator())
+          : TabBarView(
+              controller: _tabController,
+              physics: const NeverScrollableScrollPhysics(),
+              children: [
+                _buildListenTab(),
+                _KarteTab(
+                  key: _karteKey,
+                  initialeListe: _alle,
+                  aktuellePosition: _aktuellePosition,
+                  onMarkerTap: (pk) async {
+                    final res = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => DetailScreen(papierkorb: pk)));
+                    if (res == true) _initialisiereDaten();
+                  },
+                  heuteGeleertChecker: _istHeuteGeleert,
+                ),
+              ],
             ),
-          ),
-        ),
-        Positioned(
-          bottom: 48, left: 0, right: 0,
-          child: Text(
-            'QR-Code in den Rahmen halten',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.8),
-                fontSize: 16),
-          ),
-        ),
-        Positioned(
-          top: 16, right: 16,
-          child: IconButton(
-            icon: const Icon(Icons.flashlight_on, color: Colors.white),
-            onPressed: () => _scannerController.toggleTorch(),
-          ),
-        ),
-        if (_verarbeitung)
-          Container(
-            color: Colors.black54,
-            child: const Center(
-                child: CircularProgressIndicator(color: Colors.white)),
-          ),
-      ],
     );
   }
 
-  Widget _buildListe() {
+  Widget _buildListenTab() {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(12.0),
           child: TextField(
             controller: _suchCtrl,
             decoration: InputDecoration(
-              hintText:
-                  'Nach Straße, Beschreibung oder QR-Code suchen...',
+              hintText: "Suchen nach Straße, Nummer oder Stadtteil...",
               prefixIcon: const Icon(Icons.search),
-              suffixIcon: _suchCtrl.text.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () {
-                        _suchCtrl.clear();
-                        _filtern();
-                      },
-                    )
-                  : null,
-              border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 12),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              filled: true,
+              fillColor: Colors.white,
             ),
           ),
         ),
-        if (_suchCtrl.text.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(left: 16, bottom: 8),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text('${_gefiltert.length} Treffer',
-                  style: TextStyle(
-                      fontSize: 12, color: Colors.grey.shade600)),
-            ),
-          ),
         Expanded(
-          child: _laedt
-              ? const Center(child: CircularProgressIndicator())
-              : _gefiltert.isEmpty
-                  ? Center(
-                      child: Text('Keine Papierkörbe gefunden',
-                          style: TextStyle(
-                              color: Colors.grey.shade500)))
-                  : ListView.separated(
-                      itemCount: _gefiltert.length,
-                      separatorBuilder: (_, __) =>
-                          const Divider(height: 1),
-                      itemBuilder: (_, i) {
-                        final pk = _gefiltert[i];
-                        return ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: Colors.green.shade100,
-                            child: Text(
-                              '${pk.nummer}',
-                              style: TextStyle(
-                                color: Colors.green.shade800,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                          title: Text(pk.adresse),
-                          subtitle: pk.beschreibung != null
-                              ? Text(pk.beschreibung!,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 12))
-                              : null,
-                          trailing: const Icon(Icons.my_location,
-                              color: Colors.grey, size: 18),
-                          onTap: () => _zoomAufMarker(pk),
-                        );
-                      },
-                    ),
+          child: ListView.builder(
+            itemCount: _gefiltert.length,
+            itemBuilder: (context, i) {
+              final pk = _gefiltert[i];
+              final erledigt = _istHeuteGeleert(pk);
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor:
+                        erledigt ? Colors.green : Colors.blue.shade100,
+                    child: Text('${pk.nummer}',
+                        style: TextStyle(
+                            color: erledigt
+                                ? Colors.white
+                                : Colors.blue.shade900)),
+                  ),
+                  title: Text(pk.adresse,
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text(pk.stadtteil ?? "Kein Stadtteil hinterlegt"),
+                  trailing: erledigt
+                      ? const Icon(Icons.check_circle,
+                          color: Colors.green, size: 30)
+                      : const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () => _geheZuPapierkorbAufKarte(pk),
+                ),
+              );
+            },
+          ),
         ),
       ],
     );
   }
 }
 
-// ----------------------------------------------------------
-// Karten-Tab mit AutomaticKeepAliveClientMixin
-// ----------------------------------------------------------
 class _KarteTab extends StatefulWidget {
-  final List<Papierkorb> papierkorbListe;
-  final void Function(Papierkorb) onDetail;
+  final List<Papierkorb> initialeListe;
+  final Position? aktuellePosition;
+  final Function(Papierkorb) onMarkerTap;
+  final bool Function(Papierkorb) heuteGeleertChecker;
 
-  const _KarteTab({
-    super.key,
-    required this.papierkorbListe,
-    required this.onDetail,
-  });
+  const _KarteTab(
+      {super.key,
+      required this.initialeListe,
+      this.aktuellePosition,
+      required this.onMarkerTap,
+      required this.heuteGeleertChecker});
 
   @override
   State<_KarteTab> createState() => _KarteTabState();
@@ -332,7 +220,8 @@ class _KarteTab extends StatefulWidget {
 class _KarteTabState extends State<_KarteTab>
     with AutomaticKeepAliveClientMixin {
   final _mapController = MapController();
-  late List<Papierkorb> _papierkorbListe;
+  List<Papierkorb> _markerListe = [];
+  Position? _pos;
 
   @override
   bool get wantKeepAlive => true;
@@ -340,69 +229,97 @@ class _KarteTabState extends State<_KarteTab>
   @override
   void initState() {
     super.initState();
-    _papierkorbListe = widget.papierkorbListe;
+    _markerListe = widget.initialeListe;
+    _pos = widget.aktuellePosition;
   }
 
-  void aktualisiereMarker(List<Papierkorb> liste) {
-    setState(() => _papierkorbListe = liste);
+  void aktualisiereMarker(List<Papierkorb> neueListe, Position? neuePos) {
+    if (mounted) {
+      setState(() {
+        _markerListe = neueListe;
+        _pos = neuePos;
+      });
+    }
   }
 
-  void zoomZu(Papierkorb pk) {
-    _mapController.move(LatLng(pk.lat, pk.lng), 19);
+  void fokussierePapierkorb(Papierkorb pk) {
+    _mapController.move(LatLng(pk.lat, pk.lng), 18);
   }
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // Pflicht bei AutomaticKeepAliveClientMixin
-
+    super.build(context);
     return FlutterMap(
       mapController: _mapController,
       options: MapOptions(
-        initialCenter: _papierkorbListe.isNotEmpty
-            ? LatLng(
-                _papierkorbListe.first.lat, _papierkorbListe.first.lng)
-            : const LatLng(50.2007, 10.0760),
-        initialZoom: 14,
+        initialCenter: _pos != null
+            ? LatLng(_pos!.latitude, _pos!.longitude)
+            : (_markerListe.isNotEmpty
+                ? LatLng(_markerListe.first.lat, _markerListe.first.lng)
+                : const LatLng(50.2, 10.0)),
+        initialZoom: 15,
       ),
       children: [
+        // Satellitenbild als Basis
         TileLayer(
           urlTemplate:
               'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-          userAgentPackageName: 'de.stadt.papierkorb_app',
+          userAgentPackageName: 'de.eigene.app.papierkorb',
         ),
+        // Halbtransparente Straßenkarte darüber
         Opacity(
           opacity: 0.4,
           child: TileLayer(
-            urlTemplate:
-                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'de.stadt.papierkorb_app',
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'de.eigene.app.papierkorb',
           ),
         ),
         MarkerLayer(
-          markers: _papierkorbListe.map((pk) {
-            return Marker(
-              point: LatLng(pk.lat, pk.lng),
-              width: 40,
-              height: 40,
-              child: GestureDetector(
-                onTap: () => widget.onDetail(pk),
-                child: Tooltip(
-                  message: '${pk.qrCode} – ${pk.adresse}',
-                  child: const Icon(
-                    Icons.delete,
-                    color: Colors.orange,
-                    size: 30,
-                    shadows: [
-                      Shadow(
-                          color: Colors.black45,
-                          blurRadius: 4,
-                          offset: Offset(1, 1)),
-                    ],
+          markers: [
+            if (_pos != null)
+              Marker(
+                point: LatLng(_pos!.latitude, _pos!.longitude),
+                width: 20,
+                height: 20,
+                child:
+                    const Icon(Icons.my_location, color: Colors.blue, size: 25),
+              ),
+            ..._markerListe.map((pk) {
+              final erledigt = widget.heuteGeleertChecker(pk);
+              final imRadius = _pos != null &&
+                  GpsUtils.istImRadius(
+                      _pos!.latitude, _pos!.longitude, pk.lat, pk.lng);
+
+              return Marker(
+                point: LatLng(pk.lat, pk.lng),
+                width: 70,
+                height: 70,
+                child: GestureDetector(
+                  onTap: () => widget.onMarkerTap(pk),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        if (imRadius) // Gelber Schimmer für alle Marker im Radius
+                          BoxShadow(
+                            color: Colors.yellow.withOpacity(0.8),
+                            blurRadius: 25,
+                            spreadRadius: 8,
+                          ),
+                      ],
+                    ),
+                    child: Icon(
+                      erledigt ? Icons.check_circle : Icons.delete,
+                      color: erledigt
+                          ? Colors.green
+                          : Colors.orange, // Immer orange für normale Marker
+                      size: 38,
+                    ),
                   ),
                 ),
-              ),
-            );
-          }).toList(),
+              );
+            }).toList(),
+          ],
         ),
       ],
     );

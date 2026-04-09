@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../services/papierkorb_service.dart';
 
 class EinmessenScreen extends StatefulWidget {
@@ -18,7 +17,6 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
   final _service = PapierkorbService();
   final _formKey = GlobalKey<FormState>();
 
-  String? _qrCode;
   int? _nummer;
   int? _strassenId;
   String? _bauartId;
@@ -33,7 +31,6 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
   bool _laedt = false;
   bool _laedtStrassen = true;
   bool _laedtBauarten = true;
-  bool _scanlaeuft = false;
   bool _gpsLaedt = false;
 
   List<Map<String, dynamic>> _allStrassen = [];
@@ -48,6 +45,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
     _ladeStrassen();
     _ladeBauarten();
     _strassenSuchCtrl.addListener(_strassenFiltern);
+    _generiereNummer();
   }
 
   @override
@@ -90,273 +88,145 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
           ? _allStrassen
           : _allStrassen
               .where((s) =>
-                  (s['name'] as String).toLowerCase().contains(suche))
+                  (s['name'] as String).toLowerCase().contains(suche) ||
+                  (s['stadtteil'] as String).toLowerCase().contains(suche))
               .toList();
     });
   }
 
-  Future<void> _qrScannen() async {
-    setState(() => _scanlaeuft = true);
-    final result = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(builder: (_) => const _QrScannerDialog()),
-    );
-    setState(() => _scanlaeuft = false);
-    if (result == null) return;
-
-    final regex = RegExp(r'^pk_(\d{4})$');
-    final match = regex.firstMatch(result);
-    if (match == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Ungültiger QR-Code: $result'),
-          backgroundColor: Colors.red.shade700,
-        ),
-      );
-      return;
-    }
-
-    final vorhanden = await _service.perQrCode(result);
-    if (!mounted) return;
-    if (vorhanden != null) {
-      final weiter = await showDialog<bool>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: Text('$result bereits erfasst'),
-          content: const Text(
-              'Möchtest du den bestehenden Eintrag bearbeiten?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Abbrechen'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Bearbeiten'),
-            ),
-          ],
-        ),
-      );
-      if (weiter == true && mounted) {
-        Navigator.pushNamed(context, '/edit', arguments: vorhanden);
-      }
-      return;
-    }
-
-    setState(() {
-      _qrCode = result;
-      _nummer = int.parse(match.group(1)!);
-    });
-  }
-
-  Future<Position?> _holeGps() async {
+  Future<void> _generiereNummer() async {
     try {
-      final berechtigung = await Geolocator.checkPermission();
-      if (berechtigung == LocationPermission.denied) {
-        await Geolocator.requestPermission();
-      }
-      return await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-        timeLimit: const Duration(seconds: 10),
-      );
-    } catch (_) {
-      return null;
+      final papierkoerbe = await _service.alleAktiven();
+      final maxNummer = papierkoerbe.isEmpty
+          ? 0
+          : papierkoerbe.map((pk) => pk.nummer).reduce((a, b) => a > b ? a : b);
+
+      setState(() {
+        _nummer = maxNummer + 1;
+      });
+    } catch (e) {
+      setState(() {
+        _nummer = 1;
+      });
     }
   }
 
   Future<void> _fotoAufnehmen() async {
-    if (_qrCode == null) return;
     final picker = ImagePicker();
     final bild = await picker.pickImage(
       source: kIsWeb ? ImageSource.gallery : ImageSource.camera,
-      imageQuality: 90,
+      imageQuality: 55,
     );
-    if (bild == null) return;
-    final bytes = await bild.readAsBytes();
-
-    Position? position;
-    if (!kIsWeb) {
-      setState(() => _gpsLaedt = true);
-      position = await _holeGps();
-      setState(() => _gpsLaedt = false);
-    }
-
-    if (!mounted) return;
-
-    final ok = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        title: const Text('Foto aufgenommen'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.check_circle,
-                color: Colors.green.shade600, size: 56),
-            const SizedBox(height: 16),
-            if (position != null) ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.location_on,
-                      size: 16, color: Colors.green.shade600),
-                  const SizedBox(width: 4),
-                  Text('GPS erfasst',
-                      style: TextStyle(
-                          color: Colors.green.shade700,
-                          fontWeight: FontWeight.w500)),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${position.latitude.toStringAsFixed(5)}, '
-                '${position.longitude.toStringAsFixed(5)}',
-                style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey.shade500,
-                    fontFamily: 'monospace'),
-                textAlign: TextAlign.center,
-              ),
-            ] else if (!kIsWeb) ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.location_off,
-                      size: 16, color: Colors.orange.shade700),
-                  const SizedBox(width: 4),
-                  Text('GPS nicht verfügbar',
-                      style:
-                          TextStyle(color: Colors.orange.shade700)),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Betriebsstandort wird als Platzhalter\neingetragen. Bitte im Backoffice\nauf der Karte korrigieren.',
-                style: TextStyle(
-                    fontSize: 12, color: Colors.grey.shade500),
-                textAlign: TextAlign.center,
-              ),
-            ] else
-              Text('Datei ausgewählt',
-                  style: TextStyle(color: Colors.green.shade700)),
-          ],
-        ),
-        actions: [
-          TextButton.icon(
-            onPressed: () => Navigator.pop(context, false),
-            icon: const Icon(Icons.refresh),
-            label: const Text('Nochmal'),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(context, true),
-            icon: const Icon(Icons.check),
-            label: const Text('Passt ✓'),
-            style: FilledButton.styleFrom(
-                backgroundColor: Colors.green.shade700),
-          ),
-        ],
-      ),
-    );
-
-    if (ok != true) {
+    if (bild != null) {
+      final bytes = await bild.readAsBytes();
       setState(() {
-        _foto = null;
-        _fotoBytes = null;
-        _lat = null;
-        _lng = null;
+        _fotoBytes = bytes;
+        _foto = kIsWeb ? null : File(bild.path);
       });
-      return;
     }
-
-    setState(() {
-      _fotoBytes = bytes;
-      _foto = kIsWeb ? null : File(bild.path);
-      if (position != null) {
-        _lat = position.latitude;
-        _lng = position.longitude;
-      }
-    });
   }
 
-  void _zuruecksetzen() {
+  void _formularLeeren() {
+    _formKey.currentState?.reset();
     _hausnummerCtrl.clear();
     _beschreibungCtrl.clear();
     _strassenSuchCtrl.clear();
     setState(() {
-      _qrCode = null;
-      _nummer = null;
       _foto = null;
       _fotoBytes = null;
       _lat = null;
       _lng = null;
       _strassenId = null;
       _bauartId = null;
-      _laedt = false;
-      _strassenListe = _allStrassen;
     });
+    _generiereNummer();
+  }
+
+  Future<bool> _standortErmitteln() async {
+    setState(() => _gpsLaedt = true);
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 8),
+      );
+
+      setState(() {
+        _lat = position.latitude;
+        _lng = position.longitude;
+      });
+      return true;
+    } catch (e) {
+      return false;
+    } finally {
+      setState(() => _gpsLaedt = false);
+    }
   }
 
   Future<void> _speichern() async {
-    if (_qrCode == null) {
+    if (_nummer == null || _strassenId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Bitte zuerst den QR-Code scannen'),
-            backgroundColor: Colors.orange),
+        const SnackBar(content: Text('Bitte Nummer und Straße prüfen!')),
       );
       return;
     }
-    if (_strassenId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Bitte eine Straße auswählen'),
-            backgroundColor: Colors.orange),
-      );
-      return;
-    }
-    if (_fotoBytes == null && _foto == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Bitte zuerst ein Foto aufnehmen'),
-            backgroundColor: Colors.orange),
-      );
-      return;
+
+    bool gpsErfolgreich = await _standortErmitteln();
+
+    if (!gpsErfolgreich) {
+      if (!mounted) return;
+      bool trotzdem = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Kein GPS'),
+              content:
+                  const Text('Trotzdem speichern und später im Büro verorten?'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Abbrechen')),
+                TextButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Speichern')),
+              ],
+            ),
+          ) ??
+          false;
+      if (!trotzdem) return;
+      _lat ??= 50.2007;
+      _lng ??= 10.0760;
     }
 
     setState(() => _laedt = true);
 
     try {
+      final qrCode = 'pk_${_nummer.toString().padLeft(4, '0')}';
       await _service.anlegen(
-        qrCode:       _qrCode!,
-        nummer:       _nummer!,
-        strassenId:   _strassenId!,
-        hausnummer:   _hausnummerCtrl.text.trim().isEmpty
-                          ? null : _hausnummerCtrl.text.trim(),
-        beschreibung: _beschreibungCtrl.text.trim().isEmpty
-                          ? null : _beschreibungCtrl.text.trim(),
-        bauartId:     _bauartId,
-        lat:          _lat ?? 50.18694,
-        lng:          _lng ?? 10.07426,
-        foto:         _foto,
-        fotoBytes:    _fotoBytes,
+        nummer: _nummer!,
+        strassenId: _strassenId!,
+        hausnummer: _hausnummerCtrl.text.trim(),
+        beschreibung: _beschreibungCtrl.text.trim(),
+        bauartId: _bauartId,
+        lat: _lat!,
+        lng: _lng!,
+        foto: _foto,
+        fotoBytes: _fotoBytes,
       );
 
+      _formularLeeren();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$_qrCode gespeichert ✓'),
-          backgroundColor: Colors.green.shade700,
-        ),
-      );
-      _zuruecksetzen();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Gespeichert!'), backgroundColor: Colors.green));
     } catch (e) {
-      setState(() => _laedt = false);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('Fehler: $e'),
-            backgroundColor: Colors.red.shade700),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Fehler: $e')));
+    } finally {
+      setState(() => _laedt = false);
     }
   }
 
@@ -373,336 +243,89 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-
-                  // SCHRITT 1: QR-Code (nur mobil)
-                  if (!kIsWeb) ...[
-                    _schrittHeader('1', 'QR-Code scannen', _qrCode != null),
-                    const SizedBox(height: 12),
-                    if (_qrCode == null)
-                      SizedBox(
-                        width: double.infinity,
-                        height: 52,
-                        child: OutlinedButton.icon(
-                          onPressed: _scanlaeuft ? null : _qrScannen,
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(
-                                color: Colors.green.shade400, width: 2),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                          ),
-                          icon: _scanlaeuft
-                              ? const SizedBox(
-                                  width: 18, height: 18,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2))
-                              : const Icon(Icons.qr_code_scanner),
-                          label: const Text('QR-Code scannen',
-                              style: TextStyle(fontSize: 16)),
-                        ),
-                      )
-                    else
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.green.shade50,
-                          borderRadius: BorderRadius.circular(12),
-                          border:
-                              Border.all(color: Colors.green.shade300),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.check_circle,
-                                color: Colors.green.shade700, size: 24),
-                            const SizedBox(width: 12),
-                            Text(
-                              _qrCode!,
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.green.shade800,
-                                fontFamily: 'monospace',
-                              ),
-                            ),
-                            const Spacer(),
-                            TextButton(
-                              onPressed: () => setState(() {
-                                _qrCode = null;
-                                _nummer = null;
-                                _foto = null;
-                                _fotoBytes = null;
-                                _lat = null;
-                                _lng = null;
-                              }),
-                              child: const Text('Ändern'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // SCHRITT 2: Straße
-                  _schrittHeader(kIsWeb ? '1' : '2',
-                      'Straße auswählen', _strassenId != null),
+                  _schrittHeader('1', 'Nächste Nummer', _nummer != null),
+                  const SizedBox(height: 12),
+                  _buildNummerAnzeige(),
+                  const SizedBox(height: 24),
+                  _schrittHeader('2', 'Straße auswählen', _strassenId != null),
                   const SizedBox(height: 12),
                   if (_laedtStrassen)
                     const LinearProgressIndicator()
                   else
                     _strassenAuswahl(),
-
                   const SizedBox(height: 24),
-
-                  // SCHRITT 3: Details
-                  _schrittHeader(kIsWeb ? '2' : '3',
-                      'Details (optional)', false),
+                  _schrittHeader('3', 'Details & Bauart', false),
                   const SizedBox(height: 12),
-
                   TextFormField(
                     controller: _hausnummerCtrl,
                     decoration: const InputDecoration(
-                      labelText: 'Hausnummer',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.home_outlined),
-                    ),
-                    keyboardType: TextInputType.streetAddress,
+                        labelText: 'Hausnummer', border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _beschreibungCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Beschreibung',
-                      hintText: 'z.B. neben Bushaltestelle',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.notes),
-                    ),
-                    maxLines: 2,
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Bauart
                   _laedtBauarten
                       ? const LinearProgressIndicator()
                       : DropdownButtonFormField<String>(
                           value: _bauartId,
                           decoration: const InputDecoration(
-                            labelText: 'Bauart (optional)',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.delete_outline),
-                          ),
-                          items: [
-                            const DropdownMenuItem(
-                              value: null,
-                              child: Text('— keine Angabe —'),
-                            ),
-                            ..._bauarten.map((b) =>
-                                DropdownMenuItem<String>(
-                                  value: b['id'] as String,
-                                  child: Text(b['beschreibung'] as String),
-                                )),
-                          ],
-                          onChanged: (v) =>
-                              setState(() => _bauartId = v),
+                              labelText: 'Bauart',
+                              border: OutlineInputBorder()),
+                          items: _bauarten
+                              .map((b) => DropdownMenuItem<String>(
+                                    value: b['id'].toString(),
+                                    child: Text(b['beschreibung']),
+                                  ))
+                              .toList(),
+                          onChanged: (v) => setState(() => _bauartId = v),
                         ),
-
                   const SizedBox(height: 24),
-
-                  // SCHRITT 4: Foto
-                  _schrittHeader(
-                      kIsWeb ? '3' : '4',
-                      kIsWeb ? 'Foto auswählen' : 'Foto aufnehmen',
-                      _fotoBytes != null || _foto != null),
+                  _schrittHeader('4', 'Foto', _fotoBytes != null),
                   const SizedBox(height: 12),
-
-                  GestureDetector(
-                    onTap: (kIsWeb || _qrCode != null)
-                        ? _fotoAufnehmen
-                        : null,
-                    child: Container(
-                      height: 180,
-                      decoration: BoxDecoration(
-                        color: (!kIsWeb && _qrCode == null)
-                            ? Colors.grey.shade200
-                            : Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      child: _fotoBytes != null
-                          ? Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                ClipRRect(
-                                  borderRadius:
-                                      BorderRadius.circular(12),
-                                  child: Image.memory(_fotoBytes!,
-                                      fit: BoxFit.cover),
-                                ),
-                                if (_lat != null)
-                                  Positioned(
-                                    bottom: 8, left: 8,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black54,
-                                        borderRadius:
-                                            BorderRadius.circular(6),
-                                      ),
-                                      child: Text(
-                                        '${_lat!.toStringAsFixed(5)}, '
-                                        '${_lng!.toStringAsFixed(5)}',
-                                        style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 11),
-                                      ),
-                                    ),
-                                  ),
-                                Positioned(
-                                  top: 8, right: 8,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black54,
-                                      borderRadius:
-                                          BorderRadius.circular(6),
-                                    ),
-                                    child: Icon(
-                                      kIsWeb
-                                          ? Icons.upload_file
-                                          : Icons.refresh,
-                                      color: Colors.white, size: 18),
-                                  ),
-                                ),
-                              ],
-                            )
-                          : Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  kIsWeb
-                                      ? Icons.upload_file
-                                      : Icons.camera_alt,
-                                  size: 40,
-                                  color: (!kIsWeb && _qrCode == null)
-                                      ? Colors.grey.shade300
-                                      : Colors.grey.shade400,
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  (!kIsWeb && _qrCode == null)
-                                      ? 'Zuerst QR-Code scannen'
-                                      : kIsWeb
-                                          ? 'Datei auswählen'
-                                          : 'Foto aufnehmen',
-                                  style: TextStyle(
-                                    color: (!kIsWeb && _qrCode == null)
-                                        ? Colors.grey.shade400
-                                        : Colors.grey.shade500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                    ),
-                  ),
-
+                  _buildFotoBereich(),
                   const SizedBox(height: 32),
-
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton.icon(
-                      onPressed: _laedt ? null : _speichern,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green.shade700,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                      icon: _laedt
-                          ? const SizedBox(
-                              width: 20, height: 20,
-                              child: CircularProgressIndicator(
-                                  color: Colors.white, strokeWidth: 2))
-                          : const Icon(Icons.save),
-                      label: Text(
-                        _laedt
-                            ? 'Wird gespeichert...'
-                            : 'Papierkorb speichern',
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
+                  _buildSpeichernButton(),
+                  const SizedBox(height: 40),
                 ],
               ),
             ),
           ),
-
-          if (_gpsLaedt)
-            Container(
-              color: Colors.black45,
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 24, vertical: 20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(),
-                      const SizedBox(height: 16),
-                      const Text('GPS wird ermittelt...'),
-                      const SizedBox(height: 4),
-                      Text('Max. 10 Sekunden',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade500)),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+          if (_gpsLaedt) _buildGpsOverlay(),
         ],
       ),
     );
   }
 
-  Widget _schrittHeader(String nr, String titel, bool erledigt) {
-    return Row(
-      children: [
-        Container(
-          width: 28, height: 28,
-          decoration: BoxDecoration(
-            color: erledigt
-                ? Colors.green.shade600
-                : Colors.grey.shade300,
-            shape: BoxShape.circle,
+  Widget _buildNummerAnzeige() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.green.shade300),
+      ),
+      child: Row(
+        children: [
+          Text(
+            _nummer != null
+                ? 'pk_${_nummer.toString().padLeft(4, '0')}'
+                : 'Lädt...',
+            style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Colors.green.shade800),
           ),
-          child: Center(
-            child: erledigt
-                ? const Icon(Icons.check, color: Colors.white, size: 16)
-                : Text(nr,
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: Colors.grey.shade700)),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Text(titel,
-            style: const TextStyle(
-                fontSize: 16, fontWeight: FontWeight.w600)),
-      ],
+          const Spacer(),
+          const Icon(Icons.auto_awesome, color: Colors.green),
+        ],
+      ),
     );
   }
 
   Widget _strassenAuswahl() {
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade400),
+        border: Border.all(
+            color: _strassenId != null ? Colors.green : Colors.grey.shade400,
+            width: 2),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -711,171 +334,136 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
             padding: const EdgeInsets.all(8),
             child: TextField(
               controller: _strassenSuchCtrl,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 hintText: 'Straße suchen...',
-                prefixIcon: const Icon(Icons.search, size: 20),
-                suffixIcon: _strassenSuchCtrl.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 18),
-                        onPressed: () {
-                          _strassenSuchCtrl.clear();
-                          _strassenFiltern();
-                        },
-                      )
-                    : null,
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8)),
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 8),
-                isDense: true,
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
               ),
             ),
           ),
+          // Anzeige der aktuell gewählten Straße als "Feedback-Header"
           if (_strassenId != null)
             Container(
-              margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.green.shade300),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.check_circle,
-                      color: Colors.green.shade600, size: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _allStrassen.firstWhere(
-                          (s) => s['id'] == _strassenId)['name']
-                          as String,
-                      style: TextStyle(
-                          color: Colors.green.shade800,
-                          fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () =>
-                        setState(() => _strassenId = null),
-                    style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        minimumSize: const Size(40, 24)),
-                    child: const Text('Ändern',
-                        style: TextStyle(fontSize: 12)),
-                  ),
-                ],
+              width: double.infinity,
+              color: Colors.green.shade100,
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              child: Text(
+                "Ausgewählt: ${_allStrassen.firstWhere((s) => s['id'] == _strassenId)['name']}",
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold, color: Colors.green),
               ),
             ),
           SizedBox(
-            height: 200,
-            child: _strassenListe.isEmpty
-                ? Center(
-                    child: Text('Keine Treffer',
-                        style: TextStyle(
-                            color: Colors.grey.shade500)))
-                : ListView.builder(
-                    itemCount: _strassenListe.length,
-                    itemBuilder: (_, i) {
-                      final s = _strassenListe[i];
-                      final istAusgewaehlt = s['id'] == _strassenId;
-                      return ListTile(
-                        dense: true,
-                        selected: istAusgewaehlt,
-                        selectedTileColor: Colors.green.shade50,
-                        title: Text(s['name'] as String),
-                        subtitle: s['stadtteil'] != null
-                            ? Text(s['stadtteil'] as String,
-                                style: const TextStyle(fontSize: 11))
-                            : null,
-                        trailing: istAusgewaehlt
-                            ? Icon(Icons.check,
-                                color: Colors.green.shade600,
-                                size: 18)
-                            : null,
-                        onTap: () => setState(
-                            () => _strassenId = s['id'] as int),
-                      );
-                    },
-                  ),
+            height: 180,
+            child: ListView.builder(
+              itemCount: _strassenListe.length,
+              itemBuilder: (_, i) {
+                final s = _strassenListe[i];
+                final istSelektiert = _strassenId == s['id'];
+                return ListTile(
+                  tileColor: istSelektiert ? Colors.green.shade50 : null,
+                  title: Text(s['name'],
+                      style: TextStyle(
+                          fontWeight: istSelektiert
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          color: istSelektiert ? Colors.green.shade900 : null)),
+                  subtitle: Text(s['stadtteil'] ?? ''),
+                  trailing: istSelektiert
+                      ? const Icon(Icons.check_circle, color: Colors.green)
+                      : null,
+                  onTap: () {
+                    setState(() {
+                      _strassenId = s['id'];
+                    });
+                    // Verstecke Tastatur nach Auswahl
+                    FocusScope.of(context).unfocus();
+                  },
+                );
+              },
+            ),
           ),
         ],
       ),
     );
   }
-}
 
-// ----------------------------------------------------------
-// QR-Scanner Dialog
-// ----------------------------------------------------------
-class _QrScannerDialog extends StatefulWidget {
-  const _QrScannerDialog();
-
-  @override
-  State<_QrScannerDialog> createState() => _QrScannerDialogState();
-}
-
-class _QrScannerDialogState extends State<_QrScannerDialog> {
-  final _controller = MobileScannerController();
-  bool _gescannt = false;
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  Widget _buildFotoBereich() {
+    return GestureDetector(
+      onTap: _fotoAufnehmen,
+      child: Container(
+        height: 150,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: _fotoBytes != null
+            ? ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.memory(_fotoBytes!, fit: BoxFit.cover))
+            : const Center(
+                child: Icon(Icons.camera_alt, size: 40, color: Colors.grey)),
+      ),
+    );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        title: const Text('QR-Code scannen'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.flashlight_on),
-            onPressed: () => _controller.toggleTorch(),
-          ),
-        ],
+  Widget _buildSpeichernButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 60,
+      child: ElevatedButton.icon(
+        onPressed: _laedt ? null : _speichern,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.green.shade700,
+          foregroundColor: Colors.white,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        icon: _laedt
+            ? const CircularProgressIndicator(color: Colors.white)
+            : const Icon(Icons.save),
+        label: const Text('PAPIERKORB SPEICHERN',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
       ),
-      body: Stack(
-        children: [
-          MobileScanner(
-            controller: _controller,
-            onDetect: (capture) async {
-              if (_gescannt) return;
-              final code = capture.barcodes.firstOrNull?.rawValue;
-              if (code == null) return;
-              _gescannt = true;
-              await _controller.stop();
-              if (!mounted) return;
-              Navigator.pop(context, code);
-            },
-          ),
-          Center(
-            child: Container(
-              width: 250, height: 250,
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.white, width: 2),
-                borderRadius: BorderRadius.circular(12),
-              ),
+    );
+  }
+
+  Widget _buildGpsOverlay() {
+    return Container(
+      color: Colors.black54,
+      child: const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('GPS wird ermittelt...'),
+              ],
             ),
           ),
-          Positioned(
-            bottom: 48, left: 0, right: 0,
-            child: Text(
-              'QR-Code-Aufkleber scannen',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.8),
-                  fontSize: 16),
-            ),
-          ),
-        ],
+        ),
       ),
+    );
+  }
+
+  Widget _schrittHeader(String nr, String titel, bool erledigt) {
+    return Row(
+      children: [
+        CircleAvatar(
+          radius: 14,
+          backgroundColor: erledigt ? Colors.green : Colors.grey.shade400,
+          child: Text(nr,
+              style: const TextStyle(color: Colors.white, fontSize: 12)),
+        ),
+        const SizedBox(width: 10),
+        Text(titel,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      ],
     );
   }
 }

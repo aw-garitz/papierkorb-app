@@ -7,32 +7,91 @@ import '../models/papierkorb.dart';
 import '../models/leerung.dart';
 
 class PapierkorbService {
-
   // ----------------------------------------------------------
   // PAPIERKÖRBE LADEN
   // ----------------------------------------------------------
 
   Future<List<Papierkorb>> alleAktiven() async {
-    final response = await supabase
-        .from('papierkörbe_view')
+    // Zuerst Papierkörbe laden
+    final papierkoerbeResponse = await supabase
+        .schema('waste')
+        .from('papierkörbe')
         .select()
-        .eq('status', 'aktiv')
-        .order('nummer');
+        .inFilter('status', ['ok', 'defekt', 'schmutzig']).order('nummer');
 
-    return (response as List)
-        .map((json) => Papierkorb.fromJson(json))
-        .toList();
+    // Dann Straßennamen laden
+    final strassenResponse = await supabase
+        .schema('public')
+        .from('strassen')
+        .select('id, name, stadtteil');
+
+    // Dann heutige Leerungen laden
+    final heute = DateTime.now();
+    final leerungenResponse = await supabase
+        .schema('waste')
+        .from('leerungen')
+        .select('papierkorb_id')
+        .gte('geleert_am',
+            DateTime(heute.year, heute.month, heute.day).toIso8601String())
+        .lt('geleert_am',
+            DateTime(heute.year, heute.month, heute.day + 1).toIso8601String());
+
+    final strassenMap = <int, Map<String, dynamic>>{};
+    for (final strasse in strassenResponse as List) {
+      strassenMap[strasse['id'] as int] = strasse as Map<String, dynamic>;
+    }
+
+    final heuteGeleerteIds = <String>{};
+    for (final leerung in leerungenResponse as List) {
+      heuteGeleerteIds.add(leerung['papierkorb_id'] as String);
+    }
+
+    // Straßennamen und Leerungsstatus zuordnen
+    return (papierkoerbeResponse as List).map((json) {
+      final strassenId = json['strassen_id'] as int?;
+      final strasse = strassenId != null ? strassenMap[strassenId] : null;
+      final papierkorbId = json['id'] as String;
+
+      return Papierkorb.fromJson({
+        ...json,
+        'strassen_name': strasse?['name'],
+        'stadtteil': strasse?['stadtteil'],
+        'heute_geleert': heuteGeleerteIds.contains(papierkorbId),
+      });
+    }).toList();
   }
 
-  Future<Papierkorb?> perQrCode(String qrCode) async {
-    final response = await supabase
-        .from('papierkörbe_view')
+  Future<Papierkorb?> perId(String id) async {
+    // Zuerst Papierkorb laden
+    final papierkorbResponse = await supabase
+        .schema('waste')
+        .from('papierkörbe')
         .select()
-        .eq('qr_code', qrCode)
+        .eq('id', id)
         .maybeSingle();
 
-    if (response == null) return null;
-    return Papierkorb.fromJson(response);
+    if (papierkorbResponse == null) return null;
+
+    // Dann Straßennamen laden, falls strassen_id vorhanden
+    final strassenId = papierkorbResponse['strassen_id'] as int?;
+    Map<String, dynamic>? strasse;
+
+    if (strassenId != null) {
+      final strassenResponse = await supabase
+          .schema('public')
+          .from('strassen')
+          .select('name, stadtteil')
+          .eq('id', strassenId)
+          .maybeSingle();
+
+      strasse = strassenResponse;
+    }
+
+    return Papierkorb.fromJson({
+      ...papierkorbResponse,
+      'strassen_name': strasse?['name'],
+      'stadtteil': strasse?['stadtteil'],
+    });
   }
 
   // ----------------------------------------------------------
@@ -49,46 +108,46 @@ class PapierkorbService {
         .order('geleert_am', ascending: false)
         .limit(limit);
 
-    return (response as List)
-        .map((json) => Leerung.fromJson(json))
-        .toList();
+    return (response as List).map((json) => Leerung.fromJson(json)).toList();
   }
 
   Future<void> leerungBestaetigen({
     required String papierkorbId,
-    required String papierkorbQrCode,
     String? bemerkung,
     File? foto,
     Uint8List? fotoBytes,
     String? neuerStatus,
+    String? befuellung, // NEU: Füllstand
+    double? bestaetigungsLat,
+    double? bestaetigungsLng,
   }) async {
     String? fotoUrl;
 
+    // Foto-Name basiert nun auf UUID und Zeitstempel
+    final String dateiName =
+        "${papierkorbId}_${DateTime.now().millisecondsSinceEpoch}.jpg";
+
     if (fotoBytes != null) {
-      fotoUrl = await _uploadBytes(
-        fotoBytes,
-        'leerungen/${papierkorbQrCode}_${DateTime.now().millisecondsSinceEpoch}.jpg',
-      );
+      fotoUrl = await _uploadBytes(fotoBytes, 'leerungen/$dateiName');
     } else if (foto != null) {
-      fotoUrl = await _uploadFile(foto,
-          'leerungen/${papierkorbQrCode}_${DateTime.now().millisecondsSinceEpoch}.jpg');
+      fotoUrl = await _uploadFile(foto, 'leerungen/$dateiName');
     }
 
-    await supabase
-        .schema('waste')
-        .from('leerungen')
-        .insert({
-          'papierkorb_id': papierkorbId,
-          'bemerkung':     bemerkung,
-          'foto_url':      fotoUrl,
-        });
+    await supabase.schema('waste').from('leerungen').insert({
+      'papierkorb_id': papierkorbId,
+      'bemerkung': bemerkung,
+      'foto_url': fotoUrl,
+      'befuellung': befuellung, // NEU: Füllstand speichern
+      'bestaetigungs_lat': bestaetigungsLat,
+      'bestaetigungs_lng': bestaetigungsLng,
+      'geleert_am': DateTime.now().toIso8601String(),
+    });
 
     if (neuerStatus != null) {
       await supabase
           .schema('waste')
           .from('papierkörbe')
-          .update({'status': neuerStatus})
-          .eq('id', papierkorbId);
+          .update({'status': neuerStatus}).eq('id', papierkorbId);
     }
   }
 
@@ -97,9 +156,8 @@ class PapierkorbService {
   // ----------------------------------------------------------
 
   Future<List<Map<String, dynamic>>> meldungen() async {
-    final response = await supabase
-        .from('meldungen_view')
-        .select();
+    final response =
+        await supabase.schema('waste').from('meldungen_view').select();
     return List<Map<String, dynamic>>.from(response);
   }
 
@@ -112,14 +170,12 @@ class PapierkorbService {
       await supabase
           .schema('waste')
           .from('leerungen')
-          .update({'meldung_erledigt': true})
-          .eq('id', id);
+          .update({'meldung_erledigt': true}).eq('id', id);
     }
     await supabase
         .schema('waste')
         .from('papierkörbe')
-        .update({'status': 'aktiv'})
-        .eq('id', papierkorbId);
+        .update({'status': 'aktiv'}).eq('id', papierkorbId);
   }
 
   // ----------------------------------------------------------
@@ -127,18 +183,16 @@ class PapierkorbService {
   // ----------------------------------------------------------
 
   Future<List<Map<String, dynamic>>> exportDaten() async {
-    final response = await supabase
-        .from('papierkörbe_export_view')
-        .select();
+    final response =
+        await supabase.schema('waste').from('papierkörbe_export_view').select();
     return List<Map<String, dynamic>>.from(response);
   }
 
   // ----------------------------------------------------------
-  // ADMIN: PAPIERKORB ANLEGEN
+  // ADMIN: ANLEGEN & AKTUALISIEREN
   // ----------------------------------------------------------
 
   Future<Papierkorb> anlegen({
-    required String qrCode,
     required int nummer,
     required int strassenId,
     String? hausnummer,
@@ -150,43 +204,35 @@ class PapierkorbService {
     Uint8List? fotoBytes,
   }) async {
     String? fotoUrl;
+    // Wir nutzen die Nummer für den ersten Foto-Upload-Pfad
     if (fotoBytes != null) {
-      fotoUrl = await _uploadBytes(fotoBytes, '$qrCode.jpg');
+      fotoUrl = await _uploadBytes(fotoBytes, 'papierkoerbe/pk_$nummer.jpg');
     } else if (foto != null) {
-      fotoUrl = await fotoHochladen(foto, qrCode);
+      fotoUrl = await fotoHochladen(foto, "pk_$nummer");
     }
 
-    await supabase
+    final insertRes = await supabase
         .schema('waste')
         .from('papierkörbe')
         .insert({
-          'qr_code':      qrCode,
-          'nummer':       nummer,
-          'strassen_id':  strassenId,
-          'hausnummer':   hausnummer,
+          'nummer': nummer,
+          'strassen_id': strassenId,
+          'hausnummer': hausnummer,
           'beschreibung': beschreibung,
-          'bauart_id':    bauartId,
-          'lat':          lat,
-          'lng':          lng,
-          'foto_url':     fotoUrl,
-        });
-
-    final response = await supabase
-        .from('papierkörbe_view')
+          'bauart_id': bauartId,
+          'lat': lat,
+          'lng': lng,
+          'status': 'aktiv',
+          'foto_url': fotoUrl,
+        })
         .select()
-        .eq('qr_code', qrCode)
         .single();
 
-    return Papierkorb.fromJson(response);
+    return Papierkorb.fromJson(insertRes);
   }
-
-  // ----------------------------------------------------------
-  // ADMIN: PAPIERKORB AKTUALISIEREN
-  // ----------------------------------------------------------
 
   Future<Papierkorb> aktualisieren({
     required String id,
-    required String qrCode,
     required int strassenId,
     String? hausnummer,
     String? beschreibung,
@@ -199,25 +245,23 @@ class PapierkorbService {
   }) async {
     String? fotoUrl;
     if (neuesFotoBytes != null) {
-      fotoUrl = await _uploadBytes(neuesFotoBytes, '$qrCode.jpg');
+      fotoUrl = await _uploadBytes(neuesFotoBytes, 'papierkoerbe/pk_$id.jpg');
     } else if (neuesFoto != null) {
-      fotoUrl = await fotoHochladen(neuesFoto, qrCode);
+      fotoUrl = await fotoHochladen(neuesFoto, "pk_$id");
     }
 
     final updates = <String, dynamic>{
-      'strassen_id':  strassenId,
-      'hausnummer':   hausnummer,
+      'strassen_id': strassenId,
+      'hausnummer': hausnummer,
       'beschreibung': beschreibung,
-      'bauart_id':    bauartId,
-      'lat':          lat,
-      'lng':          lng,
-      'status':       status,
+      'bauart_id': bauartId,
+      'lat': lat,
+      'lng': lng,
+      'status': status,
       'geodaten_geändert_am': DateTime.now().toIso8601String(),
     };
 
-    if (fotoUrl != null) {
-      updates['foto_url'] = fotoUrl;
-    }
+    if (fotoUrl != null) updates['foto_url'] = fotoUrl;
 
     await supabase
         .schema('waste')
@@ -225,36 +269,20 @@ class PapierkorbService {
         .update(updates)
         .eq('id', id);
 
-    final response = await supabase
-        .from('papierkörbe_view')
+    final res = await supabase
+        .schema('waste')
+        .from('papierkörbe')
         .select()
         .eq('id', id)
         .single();
-
-    return Papierkorb.fromJson(response);
-  }
-
-  Future<void> geodatenAktualisieren({
-    required String id,
-    required double lat,
-    required double lng,
-  }) async {
-    await supabase
-        .schema('waste')
-        .from('papierkörbe')
-        .update({
-          'lat': lat,
-          'lng': lng,
-          'geodaten_geändert_am': DateTime.now().toIso8601String(),
-        })
-        .eq('id', id);
+    return Papierkorb.fromJson(res);
   }
 
   // ----------------------------------------------------------
-  // FOTO UPLOAD
+  // HILFSMETHODEN
   // ----------------------------------------------------------
 
-  Future<String> fotoHochladen(File foto, String qrCode) async {
+  Future<String> fotoHochladen(File foto, String name) async {
     final komprimiert = await FlutterImageCompress.compressWithFile(
       foto.absolute.path,
       quality: 55,
@@ -262,23 +290,17 @@ class PapierkorbService {
       minHeight: 800,
     );
     if (komprimiert == null) throw Exception('Komprimierung fehlgeschlagen');
-    return _uploadBytes(komprimiert, '$qrCode.jpg');
+    return _uploadBytes(komprimiert, 'papierkoerbe/$name.jpg');
   }
 
   Future<String> _uploadBytes(Uint8List bytes, String pfad) async {
-    await supabase.storage
-        .from('papierkorb-fotos')
-        .uploadBinary(
+    await supabase.storage.from('papierkorb-fotos').uploadBinary(
           pfad,
           bytes,
-          fileOptions: const FileOptions(
-            contentType: 'image/jpeg',
-            upsert: true,
-          ),
+          fileOptions:
+              const FileOptions(contentType: 'image/jpeg', upsert: true),
         );
-    return supabase.storage
-        .from('papierkorb-fotos')
-        .getPublicUrl(pfad);
+    return supabase.storage.from('papierkorb-fotos').getPublicUrl(pfad);
   }
 
   Future<String> _uploadFile(File foto, String pfad) async {
@@ -292,27 +314,19 @@ class PapierkorbService {
     return _uploadBytes(komprimiert, pfad);
   }
 
-  // ----------------------------------------------------------
-  // STRASSEN
-  // ----------------------------------------------------------
-
   Future<List<Map<String, dynamic>>> strassen() async {
     final response = await supabase
         .from('strassen')
         .select('id, name, stadtteil')
-        .order('name', ascending: true);
+        .order('name');
     return List<Map<String, dynamic>>.from(response);
   }
-
-  // ----------------------------------------------------------
-  // BAUARTEN
-  // ----------------------------------------------------------
 
   Future<List<Map<String, dynamic>>> bauarten() async {
     final response = await supabase
         .from('bauart')
         .select('id, beschreibung')
-        .order('beschreibung', ascending: true);
+        .order('beschreibung');
     return List<Map<String, dynamic>>.from(response);
   }
 }

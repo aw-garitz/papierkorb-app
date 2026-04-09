@@ -1,23 +1,14 @@
-import 'dart:io';
-import 'dart:typed_data';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:io';
 import '../../models/papierkorb.dart';
-import '../../models/leerung.dart';
 import '../../services/papierkorb_service.dart';
 
 class DetailScreen extends StatefulWidget {
   final Papierkorb papierkorb;
-  final bool readonly;
 
-  const DetailScreen({
-    super.key,
-    required this.papierkorb,
-    this.readonly = false,
-  });
+  const DetailScreen({super.key, required this.papierkorb});
 
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -25,646 +16,296 @@ class DetailScreen extends StatefulWidget {
 
 class _DetailScreenState extends State<DetailScreen> {
   final _service = PapierkorbService();
-  List<Leerung> _leerungen = [];
-  bool _laedtLeerungen = true;
+  final _bemerkungCtrl = TextEditingController();
+  final _picker = ImagePicker();
+
+  File? _foto;
   bool _speichert = false;
-  bool _erfolgreich = false;
-  late Papierkorb _papierkorb;
-  String? _fotoUrlMitTimestamp;
+  String _ausgewaehlterStatus = 'ok';
+  String _ausgewaehlteFuellung = 'voll';
 
   @override
   void initState() {
     super.initState();
-    _papierkorb = widget.papierkorb;
-    _ladeLeerungen();
+    // Status nur setzen, wenn es ein gültiger Status ist, sonst 'ok' behalten
+    if (['ok', 'defekt', 'schmutzig'].contains(widget.papierkorb.status)) {
+      _ausgewaehlterStatus = widget.papierkorb.status;
+    }
   }
 
-  Future<void> _ladeLeerungen() async {
+  Future<void> _fotoAufnehmen() async {
+    final XFile? image = await _picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 50, // Komprimierung direkt beim Pick
+      maxWidth: 1024,
+    );
+    if (image != null) {
+      setState(() => _foto = File(image.path));
+    }
+  }
+
+  Future<void> _speichern() async {
+    setState(() => _speichert = true);
     try {
-      final leerungen = await _service.leerungenFuer(_papierkorb.id);
-      setState(() {
-        _leerungen = leerungen;
-        _laedtLeerungen = false;
-      });
-    } catch (_) {
-      setState(() => _laedtLeerungen = false);
+      await _service.leerungBestaetigen(
+        papierkorbId: widget.papierkorb.id,
+        bemerkung: _bemerkungCtrl.text,
+        foto: _foto,
+        neuerStatus: _ausgewaehlterStatus,
+        befuellung: _ausgewaehlteFuellung, // NEU: Füllstand übergeben
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Leerung erfolgreich gespeichert!'),
+              backgroundColor: Colors.green),
+        );
+        Navigator.pop(
+            context, true); // Rückgabe true signalisiert Refresh der Liste
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _speichert = false);
     }
-  }
-
-  Future<void> _oeffneEdit() async {
-    final aktualisiert = await Navigator.pushNamed(
-      context,
-      '/edit',
-      arguments: _papierkorb,
-    );
-    if (aktualisiert is Papierkorb) {
-      setState(() {
-        _papierkorb = aktualisiert;
-        if (aktualisiert.fotoUrl != null) {
-          _fotoUrlMitTimestamp =
-              '${aktualisiert.fotoUrl!}?t=${DateTime.now().millisecondsSinceEpoch}';
-        }
-      });
-    }
-  }
-
-  Future<void> _zeigeLeerungsDialog() async {
-    final bemerkungCtrl = TextEditingController();
-    File? foto;
-    Uint8List? fotoBytes;
-    String status = _papierkorb.status;
-    bool dialogSpeichert = false;
-
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: Text('Leerung — ${_papierkorb.qrCode}'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                GestureDetector(
-                  onTap: () async {
-                    final picker = ImagePicker();
-                    final bild = await picker.pickImage(
-                      source: kIsWeb
-                          ? ImageSource.gallery
-                          : ImageSource.camera,
-                      imageQuality: 90,
-                    );
-                    if (bild != null) {
-                      final bytes = await bild.readAsBytes();
-                      setDialogState(() {
-                        fotoBytes = bytes;
-                        foto = kIsWeb ? null : File(bild.path);
-                      });
-                    }
-                  },
-                  child: Container(
-                    height: 140,
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey.shade300),
-                    ),
-                    child: fotoBytes != null
-                        ? Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: Image.memory(fotoBytes!,
-                                    fit: BoxFit.cover),
-                              ),
-                              Positioned(
-                                top: 6, right: 6,
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black54,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Icon(
-                                    kIsWeb ? Icons.upload_file : Icons.refresh,
-                                    color: Colors.white, size: 16),
-                                ),
-                              ),
-                            ],
-                          )
-                        : Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                kIsWeb ? Icons.upload_file : Icons.camera_alt,
-                                size: 32, color: Colors.grey.shade400),
-                              const SizedBox(height: 6),
-                              Text(
-                                kIsWeb
-                                    ? 'Datei auswählen (optional)'
-                                    : 'Foto aufnehmen (optional)',
-                                style: TextStyle(
-                                    color: Colors.grey.shade500, fontSize: 13)),
-                            ],
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: bemerkungCtrl,
-                  maxLines: 3,
-                  decoration: InputDecoration(
-                    hintText: 'Bemerkung (optional)...',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                    contentPadding: const EdgeInsets.all(12),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text('Status',
-                    style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey.shade600,
-                        fontWeight: FontWeight.w500)),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    _statusChip('aktiv', 'Aktiv', Colors.green, status,
-                        (v) => setDialogState(() => status = v)),
-                    const SizedBox(width: 8),
-                    _statusChip('defekt', 'Defekt', Colors.orange, status,
-                        (v) => setDialogState(() => status = v)),
-                    const SizedBox(width: 8),
-                    _statusChip('entfernt', 'Entfernt', Colors.red, status,
-                        (v) => setDialogState(() => status = v)),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: dialogSpeichert ? null : () => Navigator.pop(ctx),
-              child: const Text('Abbrechen'),
-            ),
-            FilledButton.icon(
-              onPressed: dialogSpeichert
-                  ? null
-                  : () async {
-                      setDialogState(() => dialogSpeichert = true);
-                      try {
-                        await _service.leerungBestaetigen(
-                          papierkorbId:     _papierkorb.id,
-                          papierkorbQrCode: _papierkorb.qrCode,
-                          bemerkung: bemerkungCtrl.text.trim().isEmpty
-                              ? null : bemerkungCtrl.text.trim(),
-                          foto:       foto,
-                          fotoBytes:  fotoBytes,
-                          neuerStatus: status != _papierkorb.status
-                              ? status : null,
-                        );
-                        if (!ctx.mounted) return;
-                        Navigator.pop(ctx);
-                        setState(() => _erfolgreich = true);
-                        await Future.delayed(const Duration(seconds: 2));
-                        if (mounted) Navigator.pop(context);
-                      } catch (e) {
-                        setDialogState(() => dialogSpeichert = false);
-                        if (!ctx.mounted) return;
-                        ScaffoldMessenger.of(ctx).showSnackBar(
-                          SnackBar(
-                              content: Text('Fehler: $e'),
-                              backgroundColor: Colors.red.shade700),
-                        );
-                      }
-                    },
-              style: FilledButton.styleFrom(
-                  backgroundColor: Colors.green.shade700),
-              icon: dialogSpeichert
-                  ? const SizedBox(
-                      width: 16, height: 16,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2))
-                  : const Icon(Icons.delete_outline),
-              label: Text(dialogSpeichert ? 'Speichert...' : 'Geleert ✓'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _statusChip(String wert, String label, MaterialColor farbe,
-      String aktuellerWert, Function(String) onTap) {
-    final ausgewaehlt = wert == aktuellerWert;
-    return GestureDetector(
-      onTap: () => onTap(wert),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: ausgewaehlt ? farbe.shade100 : Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: ausgewaehlt ? farbe.shade400 : Colors.grey.shade300,
-            width: ausgewaehlt ? 2 : 1,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            color: ausgewaehlt ? farbe.shade800 : Colors.grey.shade600,
-            fontWeight: ausgewaehlt ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final pk = widget.papierkorb;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(_papierkorb.qrCode),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit),
-            tooltip: 'Bearbeiten',
-            onPressed: _oeffneEdit,
-          ),
-        ],
+        title: Text('Papierkorb ${pk.nummer}'),
       ),
-      body: _erfolgreich
-          ? _erfolgsAnzeige()
-          : kIsWeb
-              ? _webLayout()
-              : _mobilLayout(),
-    );
-  }
-
-  Widget _webLayout() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(32),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            flex: 3,
-            child: Padding(
-              padding: const EdgeInsets.only(right: 32),
-              child: _infoBereich(),
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: _fotoWidget(maxHoehe: 320),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _mobilLayout() {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Geleert-Button ganz oben
-          if (widget.readonly)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              child: SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton.icon(
-                  onPressed: _speichert ? null : _zeigeLeerungsDialog,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green.shade700,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  icon: _speichert
-                      ? const SizedBox(
-                          width: 20, height: 20,
-                          child: CircularProgressIndicator(
-                              color: Colors.white, strokeWidth: 2))
-                      : const Icon(Icons.delete_outline, size: 24),
-                  label: Text(
-                    _speichert ? 'Wird gespeichert...' : 'Geleert ✓',
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: _fotoWidget(),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-            child: _infoBereich(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _fotoWidget({double? maxHoehe}) {
-    final fotoUrl = _fotoUrlMitTimestamp ?? _papierkorb.fotoUrl;
-    if (fotoUrl == null) {
-      return Container(
-        height: 160,
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(12),
-        ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Icon(Icons.no_photography, size: 36, color: Colors.grey.shade400),
-            const SizedBox(height: 4),
-            Text('Kein Foto vorhanden',
-                style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
-          ],
-        ),
-      );
-    }
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final seite = maxHoehe != null
-            ? constraints.maxWidth.clamp(0.0, maxHoehe)
-            : constraints.maxWidth;
-        return Container(
-          width: seite, height: seite,
-          decoration: BoxDecoration(
-            color: Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: CachedNetworkImage(
-              imageUrl: fotoUrl,
-              cacheKey: _fotoUrlMitTimestamp != null
-                  ? 'foto_${_papierkorb.qrCode}_${DateTime.now().millisecondsSinceEpoch}'
-                  : _papierkorb.qrCode,
-              fit: BoxFit.contain,
-              placeholder: (_, __) =>
-                  const Center(child: CircularProgressIndicator()),
-              errorWidget: (_, __, ___) =>
-                  Icon(Icons.broken_image, color: Colors.grey.shade400, size: 40),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _infoBereich() {
-    final datumFormat = DateFormat('dd.MM.yyyy', 'de_DE');
-    final pk = _papierkorb;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-
-        // QR-Code + Status
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.green.shade100,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(pk.qrCode,
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green.shade800,
-                      fontFamily: 'monospace')),
-            ),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: pk.status == 'aktiv'
-                    ? Colors.green.shade50
-                    : pk.status == 'defekt'
-                        ? Colors.orange.shade50
-                        : Colors.red.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: pk.status == 'aktiv'
-                      ? Colors.green.shade200
-                      : pk.status == 'defekt'
-                          ? Colors.orange.shade200
-                          : Colors.red.shade200,
-                ),
-              ),
-              child: Text(pk.status,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: pk.status == 'aktiv'
-                        ? Colors.green.shade700
-                        : pk.status == 'defekt'
-                            ? Colors.orange.shade700
-                            : Colors.red.shade700,
-                  )),
-            ),
-          ],
-        ),
-
-        const SizedBox(height: 16),
-
-        // Adresse
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.location_on, color: Colors.grey.shade500, size: 20),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(pk.adresse,
-                      style: Theme.of(context).textTheme.titleMedium),
-                  if (pk.stadtteil != null)
-                    Text(pk.stadtteil!,
-                        style: TextStyle(
-                            color: Colors.grey.shade600, fontSize: 13)),
-                ],
-              ),
-            ),
-          ],
-        ),
-
-        const SizedBox(height: 6),
-        Padding(
-          padding: const EdgeInsets.only(left: 28),
-          child: Text(
-            '${pk.lat.toStringAsFixed(6)}, ${pk.lng.toStringAsFixed(6)}',
-            style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey.shade400,
-                fontFamily: 'monospace'),
-          ),
-        ),
-
-        // Bauart
-        if (pk.bauart != null) ...[
-          const SizedBox(height: 6),
-          Padding(
-            padding: const EdgeInsets.only(left: 28),
-            child: Row(
-              children: [
-                Icon(Icons.delete_outline,
-                    size: 14, color: Colors.grey.shade400),
-                const SizedBox(width: 4),
-                Text(pk.bauart!,
-                    style: TextStyle(
-                        color: Colors.grey.shade500, fontSize: 13)),
-              ],
-            ),
-          ),
-        ],
-
-        // Beschreibung
-        if (pk.beschreibung != null) ...[
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.amber.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.amber.shade200),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.info_outline, color: Colors.amber, size: 18),
-                const SizedBox(width: 8),
-                Expanded(child: Text(pk.beschreibung!)),
-              ],
-            ),
-          ),
-        ],
-
-        // Geleert-Button im Web (nach Infos, vor Historie)
-        if (widget.readonly && kIsWeb) ...[
-          const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton.icon(
-              onPressed: _speichert ? null : _zeigeLeerungsDialog,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green.shade700,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-              icon: _speichert
-                  ? const SizedBox(
-                      width: 20, height: 20,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2))
-                  : const Icon(Icons.delete_outline, size: 24),
-              label: Text(
-                _speichert ? 'Wird gespeichert...' : 'Geleert ✓',
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ),
-        ],
-
-        const SizedBox(height: 24),
-        const Divider(),
-        const SizedBox(height: 16),
-
-        Text('Leerungshistorie',
-            style: Theme.of(context)
-                .textTheme
-                .titleSmall
-                ?.copyWith(color: Colors.grey.shade600)),
-        const SizedBox(height: 8),
-
-        if (_laedtLeerungen)
-          const Center(child: CircularProgressIndicator())
-        else if (_leerungen.isEmpty)
-          Text('Noch keine Leerung erfasst',
-              style: TextStyle(color: Colors.grey.shade500))
-        else
-          ..._leerungen.map((l) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
+            // Header Info Card mit Straßennamen + Foto
+            Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15)),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.check_circle_outline,
-                        size: 16,
-                        color: l.twice
-                            ? Colors.orange
-                            : Colors.green.shade600),
-                    const SizedBox(width: 8),
+                    // Straßennamen mit Hausnummer (75%)
                     Expanded(
+                      flex: 3,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Text(datumFormat.format(l.geleertAm.toLocal())),
-                              if (l.twice) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.orange.shade100,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text('2×',
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.orange.shade800)),
-                                ),
-                              ],
-                            ],
+                          Text(
+                            '${pk.strassenName ?? 'Unbekannte Straße'} ${pk.hausnummer ?? ''}',
+                            style: const TextStyle(
+                                fontSize: 20, fontWeight: FontWeight.bold),
                           ),
-                          if (l.bemerkung != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(l.bemerkung!,
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                      fontStyle: FontStyle.italic)),
-                            ),
-                          if (l.fotoUrl != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(6),
-                                child: CachedNetworkImage(
-                                  imageUrl: l.fotoUrl!,
-                                  height: 80,
-                                  width: 120,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            ),
+                          const SizedBox(height: 8),
+                          Text(pk.stadtteil ?? 'Kein Stadtteil',
+                              style: TextStyle(color: Colors.grey.shade600)),
+                          if (pk.beschreibung != null) ...[
+                            const SizedBox(height: 8),
+                            Text(pk.beschreibung!,
+                                style: const TextStyle(
+                                    fontStyle: FontStyle.italic)),
+                          ]
                         ],
+                      ),
+                    ),
+                    // Foto (25%)
+                    Expanded(
+                      flex: 1,
+                      child: Container(
+                        height: 120, // Hochformat mit Verhältnis 0,75
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: pk.fotoUrl != null
+                              ? CachedNetworkImage(
+                                  imageUrl: pk.fotoUrl!,
+                                  fit: BoxFit.cover,
+                                  placeholder: (context, url) => const Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                  errorWidget: (context, url, error) {
+                                    return Container(
+                                      color: Colors.grey.shade200,
+                                      child: const Icon(Icons.photo,
+                                          color: Colors.grey),
+                                    );
+                                  },
+                                )
+                              : Container(
+                                  color: Colors.grey.shade200,
+                                  child: const Icon(Icons.photo,
+                                      color: Colors.grey),
+                                ),
+                        ),
                       ),
                     ),
                   ],
                 ),
-              )),
+              ),
+            ),
 
-        const SizedBox(height: 24),
-      ],
-    );
-  }
+            const SizedBox(height: 24),
 
-  Widget _erfolgsAnzeige() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.check_circle, color: Colors.green.shade600, size: 80),
-          const SizedBox(height: 16),
-          Text('Leerung gespeichert!',
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineSmall
-                  ?.copyWith(color: Colors.green.shade700)),
-          const SizedBox(height: 8),
-          Text(_papierkorb.qrCode,
-              style: TextStyle(
-                  color: Colors.grey.shade600, fontFamily: 'monospace')),
-        ],
+            // Status Auswahl
+            const Text("Zustand / Status:",
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(
+                    value: 'ok', label: Text('OK'), icon: Icon(Icons.check)),
+                ButtonSegment(
+                    value: 'schmutzig',
+                    label: Text('Schmutzig'),
+                    icon: Icon(Icons.cleaning_services)),
+                ButtonSegment(
+                    value: 'defekt',
+                    label: Text('Defekt'),
+                    icon: Icon(Icons.build)),
+              ],
+              selected: {_ausgewaehlterStatus},
+              onSelectionChanged: (newSelection) {
+                setState(() => _ausgewaehlterStatus = newSelection.first);
+              },
+            ),
+
+            const SizedBox(height: 24),
+
+            // Füllung Auswahl
+            const Text("Füllung:",
+                style: TextStyle(
+                    fontSize: 16, // Kleinere Schriftart
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            SegmentedButton<String>(
+              style: SegmentedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                selectedBackgroundColor: Colors.green.shade100,
+              ),
+              segments: const [
+                ButtonSegment(
+                  value: 'leer',
+                  label: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.inbox_outlined, size: 16),
+                      SizedBox(width: 4),
+                      Text('Leer'),
+                    ],
+                  ),
+                ),
+                ButtonSegment(
+                  value: 'halbvoll',
+                  label: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.inbox, size: 16),
+                      SizedBox(width: 4),
+                      Text('Halbvoll'),
+                    ],
+                  ),
+                ),
+                ButtonSegment(
+                  value: 'voll',
+                  label: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.mark_email_unread, size: 16),
+                      SizedBox(width: 4),
+                      Text('Voll'),
+                    ],
+                  ),
+                ),
+                ButtonSegment(
+                  value: 'überfüllt',
+                  label: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.warning, size: 16),
+                      SizedBox(width: 4),
+                      Text('Überfüllt'),
+                    ],
+                  ),
+                ),
+              ],
+              selected: {_ausgewaehlteFuellung},
+              onSelectionChanged: (newSelection) {
+                setState(() => _ausgewaehlteFuellung = newSelection.first);
+              },
+            ),
+
+            const SizedBox(height: 24),
+
+            // Bemerkungsfeld
+            TextField(
+              controller: _bemerkungCtrl,
+              maxLines: 3,
+              decoration: InputDecoration(
+                labelText: "Bemerkung (optional)",
+                hintText: "Z.B. Graffitischäden oder stark verschmutzt...",
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.photo_camera),
+                      onPressed: _fotoAufnehmen,
+                      tooltip: 'Foto hinzufügen',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 32),
+
+            // Absende Button - Prominent gestaltet
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: ElevatedButton.icon(
+                onPressed: _speichert ? null : _speichern,
+                icon: _speichert
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 3,
+                          color: Colors.white,
+                        ))
+                    : const Icon(Icons.save_alt, size: 28),
+                label: Text(
+                  "LEERUNG BESTÄTIGEN",
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 20.0),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16)),
+                  elevation: 8,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

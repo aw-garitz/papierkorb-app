@@ -15,10 +15,13 @@ import 'models/papierkorb.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Datum-Formatierung für Deutschland (wichtig für die Leerungs-Anzeige)
   await initializeDateFormatting('de_DE');
 
+  // Env laden
   await dotenv.load(fileName: '.env');
 
+  // Supabase Initialisierung
   await Supabase.initialize(
     url: dotenv.env['SUPABASE_URL']!,
     anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
@@ -27,6 +30,7 @@ Future<void> main() async {
   runApp(const PapierkorbApp());
 }
 
+// Globaler Zugriff auf Supabase
 final supabase = Supabase.instance.client;
 
 class PapierkorbApp extends StatelessWidget {
@@ -38,17 +42,27 @@ class PapierkorbApp extends StatelessWidget {
       title: 'Papierkorb-App',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2E7D32)),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor:
+              const Color(0xFF2E7D32), // Ein schönes "Abfallwirtschafts-Grün"
+        ),
         useMaterial3: true,
+        // Optional: App-weites AppBar Design für PC-Look
+        appBarTheme: const AppBarTheme(
+          centerTitle: false,
+          elevation: 2,
+        ),
       ),
+      // Web-User landen direkt im Backoffice, Handy-User am Start
       initialRoute: kIsWeb ? '/admin/backoffice' : '/start',
       routes: {
-        '/start':            (_) => const StartScreen(),
-        '/fahrer':           (_) => const FahrerScreen(),
-        '/admin/einmessen':  (_) => const EinmessenScreen(),
+        '/start': (_) => const StartScreen(),
+        '/fahrer': (_) => const FahrerScreen(),
+        '/admin/einmessen': (_) => const EinmessenScreen(),
         '/admin/backoffice': (_) => const BackofficeScreen(),
       },
       onGenerateRoute: (settings) {
+        // Dynamische Route für den DetailScreen (Fahrer)
         if (settings.name == '/fahrer/detail') {
           final args = settings.arguments;
           if (args is Papierkorb) {
@@ -56,21 +70,18 @@ class PapierkorbApp extends StatelessWidget {
               builder: (_) => DetailScreen(papierkorb: args),
             );
           }
-          if (args is Map<String, dynamic>) {
+        }
+
+        // Dynamische Route für den EditScreen (Backoffice PC)
+        if (settings.name == '/admin/edit') {
+          final args = settings.arguments;
+          if (args is Papierkorb) {
             return MaterialPageRoute(
-              builder: (_) => DetailScreen(
-                papierkorb: args['papierkorb'] as Papierkorb,
-                readonly:   args['readonly'] as bool? ?? false,
-              ),
+              builder: (_) => EditScreen(papierkorb: args),
             );
           }
         }
-        if (settings.name == '/edit') {
-          final papierkorb = settings.arguments as Papierkorb;
-          return MaterialPageRoute(
-            builder: (_) => EditScreen(papierkorb: papierkorb),
-          );
-        }
+
         return null;
       },
     );
