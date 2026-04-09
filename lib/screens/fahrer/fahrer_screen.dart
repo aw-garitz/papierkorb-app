@@ -24,6 +24,7 @@ class _FahrerScreenState extends State<FahrerScreen>
   List<Papierkorb> _alle = [];
   List<Papierkorb> _gefiltert = [];
   bool _laedt = true;
+  String _geleertFilter = 'alle'; // 'alle', 'geleert', 'nicht_geleert'
 
   final _karteKey = GlobalKey<_KarteTabState>();
 
@@ -80,13 +81,32 @@ class _FahrerScreenState extends State<FahrerScreen>
     final suche = _suchCtrl.text.toLowerCase();
     setState(() {
       _gefiltert = _alle.where((pk) {
+        // Text-Suche
         final matchAdresse = pk.adresse.toLowerCase().contains(suche);
         final matchNummer = pk.nummer.toString().contains(suche);
         final matchStrasse =
             (pk.strassenName ?? "").toLowerCase().contains(suche);
         final matchStadtteil =
             (pk.stadtteil ?? "").toLowerCase().contains(suche);
-        return matchAdresse || matchNummer || matchStrasse || matchStadtteil;
+        final textMatch =
+            matchAdresse || matchNummer || matchStrasse || matchStadtteil;
+
+        // Geleert-Filter
+        bool geleertMatch;
+        switch (_geleertFilter) {
+          case 'geleert':
+            geleertMatch = _istHeuteGeleert(pk);
+            break;
+          case 'nicht_geleert':
+            geleertMatch = !_istHeuteGeleert(pk);
+            break;
+          case 'alle':
+          default:
+            geleertMatch = true;
+            break;
+        }
+
+        return textMatch && geleertMatch;
       }).toList();
     });
   }
@@ -164,6 +184,26 @@ class _FahrerScreenState extends State<FahrerScreen>
             ),
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'alle', label: Text('Alle')),
+                ButtonSegment(value: 'nicht_geleert', label: Text('Offen')),
+                ButtonSegment(value: 'geleert', label: Text('Erledigt')),
+              ],
+              selected: {_geleertFilter},
+              onSelectionChanged: (newSelection) {
+                setState(() {
+                  _geleertFilter = newSelection.first;
+                });
+                _filtern(); // Filter neu anwenden
+              },
+            ),
+          ),
+        ),
         Expanded(
           child: ListView.builder(
             itemCount: _gefiltert.length,
@@ -182,8 +222,28 @@ class _FahrerScreenState extends State<FahrerScreen>
                                 ? Colors.white
                                 : Colors.blue.shade900)),
                   ),
-                  title: Text(pk.adresse,
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  title: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${pk.strassenName ?? "Unbekannte Straße"} ${pk.hausnummer ?? ""}',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      if (pk.beschreibung != null &&
+                          pk.beschreibung!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2.0),
+                          child: Text(
+                            pk.beschreibung!,
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                                fontStyle: FontStyle.italic),
+                          ),
+                        ),
+                    ],
+                  ),
                   subtitle: Text(pk.stadtteil ?? "Kein Stadtteil hinterlegt"),
                   trailing: erledigt
                       ? const Icon(Icons.check_circle,

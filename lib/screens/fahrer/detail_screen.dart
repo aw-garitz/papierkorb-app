@@ -3,6 +3,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:io';
 import '../../models/papierkorb.dart';
+import '../../models/leerung.dart';
 import '../../services/papierkorb_service.dart';
 
 class DetailScreen extends StatefulWidget {
@@ -23,6 +24,7 @@ class _DetailScreenState extends State<DetailScreen> {
   bool _speichert = false;
   String _ausgewaehlterStatus = 'ok';
   String _ausgewaehlteFuellung = 'voll';
+  List<Leerung> _letzteLeerungen = [];
 
   @override
   void initState() {
@@ -31,6 +33,7 @@ class _DetailScreenState extends State<DetailScreen> {
     if (['ok', 'defekt', 'schmutzig'].contains(widget.papierkorb.status)) {
       _ausgewaehlterStatus = widget.papierkorb.status;
     }
+    _ladeLetzteLeerungen();
   }
 
   Future<void> _fotoAufnehmen() async {
@@ -44,6 +47,20 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
+  Future<void> _ladeLetzteLeerungen() async {
+    try {
+      final leerungen =
+          await _service.leerungenFuer(widget.papierkorb.id, limit: 3);
+      if (mounted) {
+        setState(() {
+          _letzteLeerungen = leerungen;
+        });
+      }
+    } catch (e) {
+      debugPrint("Fehler beim Laden der Leerungen: $e");
+    }
+  }
+
   Future<void> _speichern() async {
     setState(() => _speichert = true);
     try {
@@ -54,20 +71,27 @@ class _DetailScreenState extends State<DetailScreen> {
         neuerStatus: _ausgewaehlterStatus,
         befuellung: _ausgewaehlteFuellung, // NEU: Füllstand übergeben
       );
-
       if (mounted) {
+        setState(() => _speichert = false);
+        _bemerkungCtrl.clear();
+        setState(() => _foto = null);
+        // Historie neu laden nach erfolgreicher Leerung
+        _ladeLetzteLeerungen();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('Leerung erfolgreich gespeichert!'),
-              backgroundColor: Colors.green),
+            content: Text('Leerung erfolgreich bestätigt!'),
+            backgroundColor: Colors.green,
+          ),
         );
-        Navigator.pop(
-            context, true); // Rückgabe true signalisiert Refresh der Liste
       }
     } catch (e) {
       if (mounted) {
+        setState(() => _speichert = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Fehler: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -190,8 +214,9 @@ class _DetailScreenState extends State<DetailScreen> {
             const SizedBox(height: 8),
             SegmentedButton<String>(
               style: SegmentedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                 selectedBackgroundColor: Colors.green.shade100,
+                textStyle: const TextStyle(fontSize: 12),
               ),
               segments: const [
                 ButtonSegment(
@@ -199,9 +224,10 @@ class _DetailScreenState extends State<DetailScreen> {
                   label: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.inbox_outlined, size: 16),
-                      SizedBox(width: 4),
-                      Text('Leer'),
+                      Icon(Icons.inbox_outlined, size: 14),
+                      SizedBox(width: 2),
+                      Flexible(
+                          child: Text('Leer', style: TextStyle(fontSize: 12))),
                     ],
                   ),
                 ),
@@ -210,9 +236,10 @@ class _DetailScreenState extends State<DetailScreen> {
                   label: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.inbox, size: 16),
-                      SizedBox(width: 4),
-                      Text('Halbvoll'),
+                      Icon(Icons.inbox, size: 14),
+                      SizedBox(width: 2),
+                      Flexible(
+                          child: Text('Halb', style: TextStyle(fontSize: 12))),
                     ],
                   ),
                 ),
@@ -221,9 +248,10 @@ class _DetailScreenState extends State<DetailScreen> {
                   label: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.mark_email_unread, size: 16),
-                      SizedBox(width: 4),
-                      Text('Voll'),
+                      Icon(Icons.mark_email_unread, size: 14),
+                      SizedBox(width: 2),
+                      Flexible(
+                          child: Text('Voll', style: TextStyle(fontSize: 12))),
                     ],
                   ),
                 ),
@@ -232,9 +260,10 @@ class _DetailScreenState extends State<DetailScreen> {
                   label: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.warning, size: 16),
-                      SizedBox(width: 4),
-                      Text('Überfüllt'),
+                      Icon(Icons.warning, size: 14),
+                      SizedBox(width: 2),
+                      Flexible(
+                          child: Text('Über', style: TextStyle(fontSize: 12))),
                     ],
                   ),
                 ),
@@ -304,9 +333,56 @@ class _DetailScreenState extends State<DetailScreen> {
                 ),
               ),
             ),
+
+            // Leerungs-Historie
+            if (_letzteLeerungen.isNotEmpty) ...[
+              const SizedBox(height: 24),
+              Card(
+                elevation: 2,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Letzte Leerungen',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ..._letzteLeerungen
+                          .map((leerung) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8.0),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.history,
+                                        size: 16, color: Colors.grey),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Leerung am: ${_formatDatum(leerung.geleertAm)}',
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ))
+                          .toList(),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  String _formatDatum(DateTime datum) {
+    return '${datum.day.toString().padLeft(2, '0')}.${datum.month.toString().padLeft(2, '0')}.${datum.year}';
   }
 }
