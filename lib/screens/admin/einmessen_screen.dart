@@ -204,7 +204,6 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
     setState(() => _laedt = true);
 
     try {
-      final qrCode = 'pk_${_nummer.toString().padLeft(4, '0')}';
       await _service.anlegen(
         nummer: _nummer!,
         strassenId: _strassenId!,
@@ -260,6 +259,15 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                     controller: _hausnummerCtrl,
                     decoration: const InputDecoration(
                         labelText: 'Hausnummer', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _beschreibungCtrl,
+                    decoration: const InputDecoration(
+                        labelText: 'Beschreibung',
+                        hintText: 'z.B. Neben dem roten Haus',
+                        border: OutlineInputBorder()),
+                    maxLines: 2,
                   ),
                   const SizedBox(height: 12),
                   _laedtBauarten

@@ -1,7 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:geolocator/geolocator.dart';
 import '../../models/papierkorb.dart';
 import '../../services/papierkorb_service.dart';
 import '../../utils/gps_utils.dart';
@@ -27,6 +28,7 @@ class _FahrerScreenState extends State<FahrerScreen>
   String _geleertFilter = 'alle'; // 'alle', 'geleert', 'nicht_geleert'
 
   final _karteKey = GlobalKey<_KarteTabState>();
+  Timer? _gpsTimer;
 
   @override
   void initState() {
@@ -35,13 +37,35 @@ class _FahrerScreenState extends State<FahrerScreen>
     _tabController.addListener(() => setState(() {}));
     _suchCtrl.addListener(_filtern);
     _initialisiereDaten();
+    _starteGpsUpdates();
   }
 
   @override
   void dispose() {
+    _gpsTimer?.cancel();
     _tabController.dispose();
     _suchCtrl.dispose();
     super.dispose();
+  }
+
+  void _starteGpsUpdates() {
+    _gpsTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      try {
+        final position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 2),
+        );
+
+        if (mounted) {
+          setState(() {
+            _aktuellePosition = position;
+          });
+          _karteKey.currentState?.aktualisierePosition(position);
+        }
+      } catch (e) {
+        debugPrint("GPS-Update Fehler: $e");
+      }
+    });
   }
 
   Future<void> _initialisiereDaten() async {
@@ -297,6 +321,14 @@ class _KarteTabState extends State<_KarteTab>
     if (mounted) {
       setState(() {
         _markerListe = neueListe;
+        _pos = neuePos;
+      });
+    }
+  }
+
+  void aktualisierePosition(Position neuePos) {
+    if (mounted) {
+      setState(() {
         _pos = neuePos;
       });
     }

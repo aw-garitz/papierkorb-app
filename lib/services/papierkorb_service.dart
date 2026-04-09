@@ -222,8 +222,9 @@ class PapierkorbService {
           'bauart_id': bauartId,
           'lat': lat,
           'lng': lng,
-          'status': 'aktiv',
+          'status': 'ok', // Einzig gültiger Status für neue Papierkörbe
           'foto_url': fotoUrl,
+          'qr_code': 'DUMMY', // Nur für Datenbank-Constraint, keine Nutzung
         })
         .select()
         .single();

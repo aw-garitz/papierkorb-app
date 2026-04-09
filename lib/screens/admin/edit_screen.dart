@@ -115,6 +115,8 @@ class _EditScreenState extends State<EditScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.of(context).size.width > 1200;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -122,7 +124,13 @@ class _EditScreenState extends State<EditScreen> {
         actions: [
           FilledButton.icon(
             onPressed: _speichert ? null : _speichern,
-            icon: const Icon(Icons.save),
+            icon: _speichert
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.save),
             label: Text(_speichert ? 'Speichert...' : 'Speichern'),
           ),
           const SizedBox(width: 20),
@@ -130,71 +138,553 @@ class _EditScreenState extends State<EditScreen> {
       ),
       body: (_laedtStrassen || _laedtBauarten)
           ? const Center(child: CircularProgressIndicator())
-          : Row(
-              children: [
-                // Linke Seite: Formular
-                SizedBox(
-                  width: 450,
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _fotoBereich(),
-                        const SizedBox(height: 24),
-                        _formularFelder(),
-                      ],
-                    ),
-                  ),
-                ),
-                const VerticalDivider(width: 1),
-                // Rechte Seite: Karte (nimmt den Rest des Platzes ein)
-                Expanded(
-                  child: Stack(
-                    children: [
-                      _karte(),
-                      _kartenInfo(),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+          : isDesktop
+              ? _buildDesktopLayout()
+              : _buildMobileLayout(),
     );
   }
 
-  Widget _fotoBereich() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildDesktopLayout() {
+    return Row(
       children: [
-        const Text("Foto", style: TextStyle(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        InkWell(
-          onTap: _fotoWaehlen,
-          child: Container(
-            height: 200,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade300),
+        // Linke Seite: Formular mit fester Breite
+        SizedBox(
+          width: 500,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHeader(),
+                const SizedBox(height: 24),
+                _buildFormular(),
+                const SizedBox(height: 24),
+                _buildActions(),
+              ],
             ),
-            child: _neuesFotoBytes != null
-                ? ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.memory(_neuesFotoBytes!, fit: BoxFit.cover))
-                : (widget.papierkorb.fotoUrl != null
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: CachedNetworkImage(
-                            imageUrl: widget.papierkorb.fotoUrl!,
-                            fit: BoxFit.cover))
-                    : const Center(
-                        child: Icon(Icons.add_a_photo,
-                            size: 40, color: Colors.grey))),
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        // Rechte Seite: Karte + Foto + Zusatzinfos
+        Expanded(
+          child: Column(
+            children: [
+              // Oben: Karte + Foto nebeneinander (kleiner)
+              Expanded(
+                flex: 2,
+                child: Row(
+                  children: [
+                    // Karte (verkleinert)
+                    Expanded(
+                      flex: 3,
+                      child: Container(
+                        margin: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(color: Colors.black12, blurRadius: 4),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: _karte(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    // Foto rechts neben Karte
+                    SizedBox(
+                      width: 250,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Foto",
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            constraints: const BoxConstraints(maxHeight: 250),
+                            child: AspectRatio(
+                              aspectRatio: 3 / 4, // Hochformat
+                              child: InkWell(
+                                onTap: _fotoWaehlen,
+                                child: Container(
+                                  width: double.infinity,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade100,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border:
+                                        Border.all(color: Colors.grey.shade300),
+                                  ),
+                                  child: _neuesFotoBytes != null
+                                      ? ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          child: Image.memory(_neuesFotoBytes!,
+                                              fit: BoxFit.cover))
+                                      : (widget.papierkorb.fotoUrl != null
+                                          ? ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              child: CachedNetworkImage(
+                                                  imageUrl: widget
+                                                      .papierkorb.fotoUrl!,
+                                                  fit: BoxFit.cover))
+                                          : const Center(
+                                              child: Icon(Icons.add_a_photo,
+                                                  size: 40,
+                                                  color: Colors.grey))),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Unten: Zusatzinfos + Historie (sofort sichtbar)
+              Expanded(
+                flex: 1,
+                child: Container(
+                  margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Zusatzinfos
+                      Expanded(
+                        child: Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Zusatzinformationen',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _buildInfoItem('Koordinaten',
+                                      '${widget.papierkorb.lat}, ${widget.papierkorb.lng}'),
+                                  _buildInfoItem(
+                                      'Status', _status.toUpperCase()),
+                                  _buildInfoItem('Bauart', _getBauartName()),
+                                  _buildInfoItem('Straße',
+                                      '${widget.papierkorb.strassenName ?? "-"} (ID: ${widget.papierkorb.strassenId ?? "-"})'),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Erstellt: ${_formatDatum(widget.papierkorb.erstelltAm)}',
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // Historie
+                      Expanded(
+                        child: Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Historie',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                ),
+                                const SizedBox(height: 8),
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Historie wird implementiert...',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                                fontStyle: FontStyle.italic,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 16),
+                                        // Beispiel für zukünftige Historie-Einträge
+                                        _buildHistorieEintrag(
+                                          datum: DateTime.now().subtract(
+                                              const Duration(days: 1)),
+                                          typ: 'Leerung',
+                                          bemerkung: 'Reguläre Leerung',
+                                        ),
+                                        _buildHistorieEintrag(
+                                          datum: DateTime.now().subtract(
+                                              const Duration(days: 7)),
+                                          typ: 'Statusänderung',
+                                          bemerkung:
+                                              'Status auf "defekt" geändert',
+                                        ),
+                                        _buildHistorieEintrag(
+                                          datum: DateTime.now().subtract(
+                                              const Duration(days: 14)),
+                                          typ: 'Leerung',
+                                          bemerkung: 'Reguläre Leerung',
+                                        ),
+                                        _buildHistorieEintrag(
+                                          datum: DateTime.now().subtract(
+                                              const Duration(days: 30)),
+                                          typ: 'Wartung',
+                                          bemerkung: 'Reparatur durchgeführt',
+                                        ),
+                                        _buildHistorieEintrag(
+                                          datum: DateTime.now().subtract(
+                                              const Duration(days: 60)),
+                                          typ: 'Leerung',
+                                          bemerkung: 'Reguläre Leerung',
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ],
     );
+  }
+
+  Widget _buildMobileLayout() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          _buildHeader(),
+          const SizedBox(height: 24),
+          _buildFormular(),
+          const SizedBox(height: 24),
+          Container(
+            height: 300,
+            margin: const EdgeInsets.symmetric(vertical: 16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: _karte(),
+            ),
+          ),
+          _buildInfoPanel(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Papierkorb #${widget.papierkorb.nummer}',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '${widget.papierkorb.strassenName ?? "Unbekannte Straße"} ${widget.papierkorb.hausnummer ?? ""}',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Colors.grey[600],
+                  ),
+            ),
+            if (widget.papierkorb.beschreibung != null &&
+                widget.papierkorb.beschreibung!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  widget.papierkorb.beschreibung!,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.grey[500],
+                        fontStyle: FontStyle.italic,
+                      ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFormular() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Stammdaten',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            _formularFelder(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActions() {
+    return Row(
+      children: [
+        Expanded(
+          child: FilledButton.icon(
+            onPressed: _speichert ? null : _speichern,
+            icon: _speichert
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.save),
+            label: Text(_speichert ? 'Speichert...' : 'Speichern'),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        OutlinedButton.icon(
+          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.cancel),
+          label: const Text('Abbrechen'),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInfoPanel() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Zusatzinformationen',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 16),
+              _buildInfoItem('Koordinaten',
+                  '${widget.papierkorb.lat}, ${widget.papierkorb.lng}'),
+              _buildInfoItem('Status', _status.toUpperCase()),
+              _buildInfoItem('Bauart', _getBauartName()),
+              _buildInfoItem('Straße',
+                  '${widget.papierkorb.strassenName ?? "-"} (ID: ${widget.papierkorb.strassenId ?? "-"})'),
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 16),
+              Text(
+                'Letzte Änderung',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Erstellt am: ${_formatDatum(widget.papierkorb.erstelltAm)}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              if (widget.papierkorb.letzteLeerung != null)
+                Text(
+                  'Letzte Leerung: ${_formatDatum(widget.papierkorb.letzteLeerung!)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 16),
+              Text(
+                'Historie',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Historie-Funktion wird implementiert...',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontStyle: FontStyle.italic,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoItem(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              '$label:',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getBauartName() {
+    if (_bauartId == null || _bauarten.isEmpty) {
+      return 'Nicht zugewiesen';
+    }
+
+    final bauart = _bauarten.firstWhere(
+      (b) => b['id'].toString() == _bauartId,
+      orElse: () => {'beschreibung': 'Unbekannte Bauart'},
+    );
+
+    return bauart['beschreibung'] as String? ?? 'Unbekannte Bauart';
+  }
+
+  Widget _buildHistorieEintrag({
+    required DateTime datum,
+    required String typ,
+    required String bemerkung,
+  }) {
+    Color typColor;
+    IconData typIcon;
+
+    switch (typ.toLowerCase()) {
+      case 'leerung':
+        typColor = Colors.green;
+        typIcon = Icons.delete_outline;
+        break;
+      case 'statusänderung':
+        typColor = Colors.orange;
+        typIcon = Icons.edit_note;
+        break;
+      case 'wartung':
+        typColor = Colors.blue;
+        typIcon = Icons.build;
+        break;
+      default:
+        typColor = Colors.grey;
+        typIcon = Icons.info_outline;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: typColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(typIcon, size: 16, color: typColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      typ,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: typColor,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      _formatDatum(datum),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.grey.shade600,
+                            fontSize: 11,
+                          ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  bemerkung,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontSize: 12,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDatum(DateTime datum) {
+    return '${datum.day.toString().padLeft(2, '0')}.${datum.month.toString().padLeft(2, '0')}.${datum.year} ${datum.hour.toString().padLeft(2, '0')}:${datum.minute.toString().padLeft(2, '0')}';
   }
 
   Widget _formularFelder() {
@@ -230,9 +720,11 @@ class _EditScreenState extends State<EditScreen> {
           decoration: const InputDecoration(
               labelText: 'Verwaltungs-Status', border: OutlineInputBorder()),
           items: const [
-            DropdownMenuItem(value: 'aktiv', child: Text('Aktiv (In Betrieb)')),
+            DropdownMenuItem(value: 'ok', child: Text('OK (In Betrieb)')),
             DropdownMenuItem(
                 value: 'defekt', child: Text('Defekt (Reparatur nötig)')),
+            DropdownMenuItem(
+                value: 'schmutzig', child: Text('Schmutzig (Reinigung nötig)')),
             DropdownMenuItem(
                 value: 'archiviert', child: Text('Archiviert (Abgebaut)')),
           ],
@@ -311,19 +803,6 @@ class _EditScreenState extends State<EditScreen> {
                   const Icon(Icons.location_on, color: Colors.red, size: 50)),
         ]),
       ],
-    );
-  }
-
-  Widget _kartenInfo() {
-    return Positioned(
-      top: 10,
-      right: 10,
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        color: Colors.black87,
-        child: Text("${_lat.toStringAsFixed(6)}, ${_lng.toStringAsFixed(6)}",
-            style: const TextStyle(color: Colors.white, fontSize: 12)),
-      ),
     );
   }
 }

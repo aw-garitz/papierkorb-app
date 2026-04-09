@@ -102,7 +102,6 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                   key: _karteKey,
                   initialeListe: _alle,
                   onMarkerTap: (pk) async {
-                    // Reparierte Navigation: Nutzt jetzt die Route aus der main.dart
                     final res = await Navigator.pushNamed(
                       context,
                       '/admin/edit',
@@ -141,29 +140,130 @@ class _BackofficeScreenState extends State<BackofficeScreen>
             itemBuilder: (context, i) {
               final pk = _gefiltert[i];
               final erledigt = _istHeuteGeleert(pk);
+
               return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor:
-                        erledigt ? Colors.green : Colors.orange.shade100,
-                    child: Text(pk.nummer.toString(),
-                        style: TextStyle(
-                            color: erledigt
-                                ? Colors.white
-                                : Colors.orange.shade900)),
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      // Linke Seite: Avatar + Text
+                      Expanded(
+                        flex: 3,
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              backgroundColor: erledigt
+                                  ? Colors.green
+                                  : Colors.orange.shade100,
+                              child: Text(pk.nummer.toString(),
+                                  style: TextStyle(
+                                      color: erledigt
+                                          ? Colors.white
+                                          : Colors.orange.shade900,
+                                      fontWeight: FontWeight.bold)),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text("${pk.adresse} ${pk.hausnummer ?? ''}",
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16)),
+                                  if (pk.beschreibung != null &&
+                                      pk.beschreibung!.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Text(
+                                          "Standort: ${pk.beschreibung}",
+                                          style: TextStyle(
+                                              color: Colors.grey.shade700,
+                                              fontSize: 13,
+                                              fontStyle: FontStyle.italic)),
+                                    ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        erledigt
+                                            ? Icons.check_circle
+                                            : Icons.pending_actions,
+                                        size: 14,
+                                        color: erledigt
+                                            ? Colors.green
+                                            : Colors.orange,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        erledigt
+                                            ? "Heute bereits geleert"
+                                            : "Heute noch offen",
+                                        style: TextStyle(
+                                          color: erledigt
+                                              ? Colors.green
+                                              : Colors.orange.shade800,
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Rechte Seite: Buttons nebeneinander
+                      Expanded(
+                        flex: 2,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            IconButton(
+                              onPressed: () {
+                                _tabController.animateTo(1);
+                                Future.delayed(
+                                    const Duration(milliseconds: 350), () {
+                                  _karteKey.currentState?.zoomZu(pk);
+                                });
+                              },
+                              icon: const Icon(Icons.map_outlined, size: 24),
+                              tooltip: 'Auf Karte zeigen',
+                              style: IconButton.styleFrom(
+                                padding: const EdgeInsets.all(10),
+                                minimumSize: const Size(44, 44),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              onPressed: () async {
+                                final res = await Navigator.pushNamed(
+                                  context,
+                                  '/admin/edit',
+                                  arguments: pk,
+                                );
+                                if (res == true) _laden();
+                              },
+                              icon: const Icon(Icons.edit_note, size: 24),
+                              tooltip: 'Details bearbeiten',
+                              style: IconButton.styleFrom(
+                                padding: const EdgeInsets.all(10),
+                                minimumSize: const Size(44, 44),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  title: Text(pk.adresse,
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle:
-                      Text(erledigt ? "Status: Geleert" : "Status: Offen"),
-                  trailing: const Icon(Icons.map_outlined),
-                  onTap: () {
-                    _tabController.animateTo(1);
-                    Future.delayed(const Duration(milliseconds: 350), () {
-                      _karteKey.currentState?.zoomZu(pk);
-                    });
-                  },
                 ),
               );
             },
@@ -246,24 +346,16 @@ class _KarteTabState extends State<_KarteTab>
               height: 70,
               child: GestureDetector(
                 onTap: () => widget.onMarkerTap(pk),
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      // Kein Radius-Schimmer im Backoffice (da keine GPS-Position)
-                    ],
-                  ),
-                  child: Icon(
-                    erledigt ? Icons.check_circle : Icons.delete,
-                    color: erledigt ? Colors.green : Colors.orange,
-                    size: 38,
-                    shadows: [
-                      Shadow(
-                          color: Colors.black45,
-                          blurRadius: 4,
-                          offset: Offset(1, 1)),
-                    ],
-                  ),
+                child: Icon(
+                  erledigt ? Icons.check_circle : Icons.delete,
+                  color: erledigt ? Colors.green : Colors.orange,
+                  size: 38,
+                  shadows: const [
+                    Shadow(
+                        color: Colors.black45,
+                        blurRadius: 4,
+                        offset: Offset(1, 1)),
+                  ],
                 ),
               ),
             );
