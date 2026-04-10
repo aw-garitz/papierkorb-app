@@ -150,11 +150,11 @@ class _BackofficeScreenState extends State<BackofficeScreen>
           ? Column(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                // Filter-Buttons
+                // Filter-Buttons zentriert unten
                 Container(
                   margin: const EdgeInsets.only(bottom: 16),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       _buildFilterChip('alle', 'Alle'),
                       const SizedBox(width: 8),
@@ -164,7 +164,7 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                     ],
                   ),
                 ),
-                // FloatingActionButton
+                // FloatingActionButton rechts
                 FloatingActionButton.extended(
                   onPressed: () async {
                     final res =
@@ -344,6 +344,71 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                                 padding: const EdgeInsets.all(10),
                                 minimumSize: const Size(44, 44),
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              onPressed: () async {
+                                final confirmed = await showDialog<bool>(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: const Text('Papierkorb löschen'),
+                                    content: Text(
+                                        'Möchten Sie Papierkorb #${pk.nummer} wirklich löschen?\n\nAdresse: ${pk.adresse} ${pk.hausnummer ?? ''}'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, false),
+                                        child: const Text('Abbrechen'),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, true),
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: Colors.red,
+                                          foregroundColor: Colors.white,
+                                        ),
+                                        child: const Text('Löschen'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+
+                                if (confirmed == true) {
+                                  try {
+                                    await _service.loeschen(pk.id);
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                              'Papierkorb erfolgreich gelöscht'),
+                                          backgroundColor: Colors.green,
+                                        ),
+                                      );
+                                      _laden();
+                                    }
+                                  } catch (e) {
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        SnackBar(
+                                          content:
+                                              Text('Fehler beim Löschen: $e'),
+                                          backgroundColor: Colors.red,
+                                        ),
+                                      );
+                                    }
+                                  }
+                                }
+                              },
+                              icon: const Icon(Icons.delete, size: 24),
+                              tooltip: 'Papierkorb löschen',
+                              style: IconButton.styleFrom(
+                                padding: const EdgeInsets.all(10),
+                                minimumSize: const Size(44, 44),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                foregroundColor: Colors.red,
                               ),
                             ),
                           ],

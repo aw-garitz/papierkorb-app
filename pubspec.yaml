@@ -59,6 +59,9 @@ flutter_launcher_icons:
   android: true
   ios: true
   image_path: "assets/icon/abfalleimer.png"
+  adaptive_icon_background: "#2D5F6E"
+  adaptive_icon_foreground: "assets/icon/abfalleimer.png"
+  remove_alpha_ios: true
   web:
     generate: true
     image_path: "assets/icon/abfalleimer.png"

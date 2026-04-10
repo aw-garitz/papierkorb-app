@@ -280,6 +280,10 @@ class PapierkorbService {
     return Papierkorb.fromJson(res);
   }
 
+  Future<void> loeschen(String id) async {
+    await supabase.schema('waste').from('papierkörbe').delete().eq('id', id);
+  }
+
   // ----------------------------------------------------------
   // HILFSMETHODEN
   // ----------------------------------------------------------
