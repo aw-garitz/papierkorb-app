@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/papierkorb.dart';
+import '../../models/leerung.dart';
 import '../../services/papierkorb_service.dart';
 
 class EditScreen extends StatefulWidget {
@@ -24,7 +25,7 @@ class _EditScreenState extends State<EditScreen> {
   String? _bauartId;
   final _hausnummerCtrl = TextEditingController();
   final _beschreibungCtrl = TextEditingController();
-  String _status = 'aktiv';
+  String _status = 'ok';
 
   Uint8List? _neuesFotoBytes;
   late double _lat;
@@ -39,6 +40,10 @@ class _EditScreenState extends State<EditScreen> {
   bool _laedtBauarten = true;
   bool _speichert = false;
 
+  // Leerungshistorie
+  List<Leerung> _leerungen = [];
+  bool _laedtLeerungen = true;
+
   @override
   void initState() {
     super.initState();
@@ -52,20 +57,42 @@ class _EditScreenState extends State<EditScreen> {
     _lng = pk.lng;
     _strassenSuchCtrl.addListener(_strassenFiltern);
     _ladeDaten();
+    _ladeLeerungen();
+  }
+
+  @override
+  void dispose() {
+    _hausnummerCtrl.dispose();
+    _beschreibungCtrl.dispose();
+    _strassenSuchCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _ladeDaten() async {
     try {
       final res = await Future.wait([_service.strassen(), _service.bauarten()]);
       setState(() {
-        _allStrassen = res[0] as List<Map<String, dynamic>>;
+        _allStrassen = res[0];
         _strassenListe = _allStrassen;
-        _bauarten = res[1] as List<Map<String, dynamic>>;
+        _bauarten = res[1];
         _laedtStrassen = false;
         _laedtBauarten = false;
       });
     } catch (e) {
-      debugPrint("Fehler Stammdaten: $e");
+      debugPrint('Fehler Stammdaten: $e');
+    }
+  }
+
+  Future<void> _ladeLeerungen() async {
+    try {
+      final liste =
+          await _service.leerungenFuer(widget.papierkorb.id, limit: 30);
+      setState(() {
+        _leerungen = liste;
+        _laedtLeerungen = false;
+      });
+    } catch (_) {
+      setState(() => _laedtLeerungen = false);
     }
   }
 
@@ -86,14 +113,12 @@ class _EditScreenState extends State<EditScreen> {
         type: FileType.image,
         allowMultiple: false,
       );
-
       if (result != null && result.files.isNotEmpty) {
-        final file = result.files.first;
-        final bytes = await file.bytes;
-        setState(() => _neuesFotoBytes = bytes);
+        final bytes = result.files.first.bytes;
+        if (bytes != null) setState(() => _neuesFotoBytes = bytes);
       }
     } catch (e) {
-      debugPrint("Fehler beim Bildauswahl: $e");
+      debugPrint('Fehler Bildauswahl: $e');
     }
   }
 
@@ -104,8 +129,12 @@ class _EditScreenState extends State<EditScreen> {
       await _service.aktualisieren(
         id: widget.papierkorb.id,
         strassenId: _strassenId!,
-        hausnummer: _hausnummerCtrl.text.trim(),
-        beschreibung: _beschreibungCtrl.text.trim(),
+        hausnummer: _hausnummerCtrl.text.trim().isEmpty
+            ? null
+            : _hausnummerCtrl.text.trim(),
+        beschreibung: _beschreibungCtrl.text.trim().isEmpty
+            ? null
+            : _beschreibungCtrl.text.trim(),
         bauartId: _bauartId,
         lat: _lat,
         lng: _lng,
@@ -115,9 +144,25 @@ class _EditScreenState extends State<EditScreen> {
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       setState(() => _speichert = false);
+      if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Fehler: $e')));
     }
+  }
+
+  String _formatDatum(DateTime datum) {
+    return '${datum.day.toString().padLeft(2, '0')}.'
+        '${datum.month.toString().padLeft(2, '0')}.'
+        '${datum.year}';
+  }
+
+  String _getBauartName() {
+    if (_bauartId == null || _bauarten.isEmpty) return 'Nicht zugewiesen';
+    final bauart = _bauarten.firstWhere(
+      (b) => b['id'].toString() == _bauartId,
+      orElse: () => {'beschreibung': 'Unbekannte Bauart'},
+    );
+    return bauart['beschreibung'] as String? ?? 'Unbekannte Bauart';
   }
 
   @override
@@ -127,7 +172,7 @@ class _EditScreenState extends State<EditScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-            'Papierkorb #${widget.papierkorb.nummer} - Stammdaten bearbeiten'),
+            'Papierkorb #${widget.papierkorb.nummer} – Stammdaten bearbeiten'),
         actions: [
           FilledButton.icon(
             onPressed: _speichert ? null : _speichern,
@@ -151,10 +196,13 @@ class _EditScreenState extends State<EditScreen> {
     );
   }
 
+  // ----------------------------------------------------------
+  // DESKTOP LAYOUT
+  // ----------------------------------------------------------
   Widget _buildDesktopLayout() {
     return Row(
       children: [
-        // Linke Seite: Formular mit fester Breite
+        // Links: Formular
         SizedBox(
           width: 500,
           child: SingleChildScrollView(
@@ -168,7 +216,6 @@ class _EditScreenState extends State<EditScreen> {
                 const SizedBox(height: 24),
                 _buildActions(),
                 const SizedBox(height: 16),
-                // Abbrechen-Button unten links
                 SizedBox(
                   width: double.infinity,
                   child: TextButton.icon(
@@ -187,25 +234,27 @@ class _EditScreenState extends State<EditScreen> {
             ),
           ),
         ),
+
         const VerticalDivider(width: 1),
-        // Rechte Seite: Karte + Foto + Zusatzinfos
+
+        // Rechts: Karte + Foto + Info + Historie
         Expanded(
           child: Column(
             children: [
-              // Oben: Karte + Foto nebeneinander (kleiner)
+              // Oben: Karte + Foto
               Expanded(
                 flex: 2,
                 child: Row(
                   children: [
-                    // Karte (verkleinert)
+                    // Karte
                     Expanded(
                       flex: 3,
                       child: Container(
                         margin: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(color: Colors.black12, blurRadius: 4),
+                          boxShadow: const [
+                            BoxShadow(color: Colors.black12, blurRadius: 4)
                           ],
                         ),
                         child: ClipRRect(
@@ -214,25 +263,23 @@ class _EditScreenState extends State<EditScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    // Foto rechts neben Karte
-                    SizedBox(
-                      width: 250,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            "Foto",
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 8),
-                          Container(
-                            constraints: const BoxConstraints(maxHeight: 250),
-                            child: AspectRatio(
-                              aspectRatio: 3 / 4, // Hochformat
+                    // Foto
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 16, 16, 16),
+                      child: SizedBox(
+                        width: 220,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Foto',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleSmall
+                                    ?.copyWith(fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            Expanded(
                               child: Stack(
                                 children: [
-                                  // Aktuelles Bild
                                   Container(
                                     width: double.infinity,
                                     decoration: BoxDecoration(
@@ -248,7 +295,7 @@ class _EditScreenState extends State<EditScreen> {
                                             child: Image.memory(
                                                 _neuesFotoBytes!,
                                                 fit: BoxFit.cover))
-                                        : (widget.papierkorb.fotoUrl != null
+                                        : widget.papierkorb.fotoUrl != null
                                             ? ClipRRect(
                                                 borderRadius:
                                                     BorderRadius.circular(12),
@@ -259,119 +306,53 @@ class _EditScreenState extends State<EditScreen> {
                                             : const Center(
                                                 child: Icon(Icons.add_a_photo,
                                                     size: 40,
-                                                    color: Colors.grey))),
+                                                    color: Colors.grey)),
                                   ),
-                                  // Bearbeitungs-Buttons
                                   Positioned(
                                     bottom: 8,
                                     right: 8,
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        // Neues Foto
-                                        Container(
-                                          decoration: BoxDecoration(
-                                            color: Colors.blue.withOpacity(0.9),
-                                            borderRadius:
-                                                BorderRadius.circular(20),
-                                          ),
-                                          child: IconButton(
-                                            onPressed: _fotoWaehlen,
-                                            icon: const Icon(Icons.folder_open,
-                                                size: 16, color: Colors.white),
-                                            tooltip:
-                                                'Bild aus Ordner auswählen',
-                                            constraints: const BoxConstraints(
-                                                minWidth: 36, minHeight: 36),
-                                            padding: const EdgeInsets.all(8),
-                                          ),
+                                        _fotoButton(
+                                          color: Colors.blue,
+                                          icon: Icons.folder_open,
+                                          tooltip: 'Bild auswählen',
+                                          onPressed: _fotoWaehlen,
                                         ),
-                                        const SizedBox(width: 4),
-                                        // Foto zurücksetzen (wenn neues ausgewählt)
-                                        if (_neuesFotoBytes != null)
-                                          Container(
-                                            decoration: BoxDecoration(
-                                              color: Colors.orange
-                                                  .withOpacity(0.9),
-                                              borderRadius:
-                                                  BorderRadius.circular(20),
-                                            ),
-                                            child: IconButton(
-                                              onPressed: () {
-                                                setState(() {
-                                                  _neuesFotoBytes = null;
-                                                });
-                                              },
-                                              icon: const Icon(Icons.refresh,
-                                                  size: 16,
-                                                  color: Colors.white),
-                                              tooltip: 'Zurück zum Original',
-                                              constraints: const BoxConstraints(
-                                                  minWidth: 36, minHeight: 36),
-                                              padding: const EdgeInsets.all(8),
-                                            ),
+                                        if (_neuesFotoBytes != null) ...[
+                                          const SizedBox(width: 4),
+                                          _fotoButton(
+                                            color: Colors.orange,
+                                            icon: Icons.refresh,
+                                            tooltip: 'Zurück zum Original',
+                                            onPressed: () => setState(
+                                                () => _neuesFotoBytes = null),
                                           ),
+                                        ],
                                       ],
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
-              // Unten: Zusatzinfos + Historie (sofort sichtbar)
+
+              // Unten: Zusatzinfos + Historie NEBENEINANDER
               Expanded(
                 flex: 1,
-                child: Container(
-                  margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  child: Column(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Zusatzinfos
-                      Expanded(
-                        child: Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: SingleChildScrollView(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Zusatzinformationen',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  _buildInfoItem('Koordinaten',
-                                      '${widget.papierkorb.lat}, ${widget.papierkorb.lng}'),
-                                  _buildInfoItem(
-                                      'Status', _status.toUpperCase()),
-                                  _buildInfoItem('Bauart', _getBauartName()),
-                                  _buildInfoItem('Straße',
-                                      '${widget.papierkorb.strassenName ?? "-"} (ID: ${widget.papierkorb.strassenId ?? "-"})'),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Erstellt: ${_formatDatum(widget.papierkorb.erstelltAm)}',
-                                    style:
-                                        Theme.of(context).textTheme.bodySmall,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      // Historie
+                      // Zusatzinformationen
                       Expanded(
                         child: Card(
                           child: Padding(
@@ -379,67 +360,85 @@ class _EditScreenState extends State<EditScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  'Historie',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium
-                                      ?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                ),
-                                const SizedBox(height: 8),
+                                Text('Zusatzinformationen',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
+                                        ?.copyWith(
+                                            fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 12),
                                 Expanded(
                                   child: SingleChildScrollView(
                                     child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          'Historie wird implementiert...',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.copyWith(
-                                                fontStyle: FontStyle.italic,
-                                              ),
-                                        ),
-                                        const SizedBox(height: 16),
-                                        // Beispiel für zukünftige Historie-Einträge
-                                        _buildHistorieEintrag(
-                                          datum: DateTime.now().subtract(
-                                              const Duration(days: 1)),
-                                          typ: 'Leerung',
-                                          bemerkung: 'Reguläre Leerung',
-                                        ),
-                                        _buildHistorieEintrag(
-                                          datum: DateTime.now().subtract(
-                                              const Duration(days: 7)),
-                                          typ: 'Statusänderung',
-                                          bemerkung:
-                                              'Status auf "defekt" geändert',
-                                        ),
-                                        _buildHistorieEintrag(
-                                          datum: DateTime.now().subtract(
-                                              const Duration(days: 14)),
-                                          typ: 'Leerung',
-                                          bemerkung: 'Reguläre Leerung',
-                                        ),
-                                        _buildHistorieEintrag(
-                                          datum: DateTime.now().subtract(
-                                              const Duration(days: 30)),
-                                          typ: 'Wartung',
-                                          bemerkung: 'Reparatur durchgeführt',
-                                        ),
-                                        _buildHistorieEintrag(
-                                          datum: DateTime.now().subtract(
-                                              const Duration(days: 60)),
-                                          typ: 'Leerung',
-                                          bemerkung: 'Reguläre Leerung',
-                                        ),
+                                        _infoZeile(
+                                            'Koordinaten',
+                                            '${_lat.toStringAsFixed(5)}, '
+                                                '${_lng.toStringAsFixed(5)}'),
+                                        _infoZeile(
+                                            'Status', _status.toUpperCase()),
+                                        _infoZeile('Bauart', _getBauartName()),
+                                        _infoZeile(
+                                            'Straße',
+                                            widget.papierkorb.strassenName ??
+                                                '—'),
+                                        _infoZeile(
+                                            'Erstellt',
+                                            _formatDatum(
+                                                widget.papierkorb.erstelltAm)),
+                                        if (widget.papierkorb.letzteLeerung !=
+                                            null)
+                                          _infoZeile(
+                                              'Letzte Leerung',
+                                              _formatDatum(widget
+                                                  .papierkorb.letzteLeerung!)),
                                       ],
                                     ),
                                   ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(width: 8),
+
+                      // Leerungshistorie aus Supabase
+                      Expanded(
+                        child: Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Leerungshistorie',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
+                                        ?.copyWith(
+                                            fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 8),
+                                Expanded(
+                                  child: _laedtLeerungen
+                                      ? const Center(
+                                          child: CircularProgressIndicator())
+                                      : _leerungen.isEmpty
+                                          ? Text(
+                                              'Noch keine Leerungen erfasst',
+                                              style: TextStyle(
+                                                  color: Colors.grey.shade500,
+                                                  fontStyle: FontStyle.italic),
+                                            )
+                                          : ListView.separated(
+                                              itemCount: _leerungen.length,
+                                              separatorBuilder: (_, __) =>
+                                                  const Divider(height: 8),
+                                              itemBuilder: (_, i) {
+                                                final l = _leerungen[i];
+                                                return _leerungZeile(l);
+                                              },
+                                            ),
                                 ),
                               ],
                             ),
@@ -457,6 +456,9 @@ class _EditScreenState extends State<EditScreen> {
     );
   }
 
+  // ----------------------------------------------------------
+  // MOBIL LAYOUT
+  // ----------------------------------------------------------
   Widget _buildMobileLayout() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -465,25 +467,168 @@ class _EditScreenState extends State<EditScreen> {
           _buildHeader(),
           const SizedBox(height: 24),
           _buildFormular(),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
           Container(
             height: 300,
-            margin: const EdgeInsets.symmetric(vertical: 16),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
+              boxShadow: const [
+                BoxShadow(color: Colors.black12, blurRadius: 4)
+              ],
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: _karte(),
             ),
           ),
-          _buildInfoPanel(),
+          const SizedBox(height: 16),
+          _buildActions(),
+          const SizedBox(height: 16),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Info',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleSmall
+                                ?.copyWith(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        _infoZeile('Status', _status),
+                        _infoZeile('Bauart', _getBauartName()),
+                        _infoZeile('Erstellt',
+                            _formatDatum(widget.papierkorb.erstelltAm)),
+                        if (widget.papierkorb.letzteLeerung != null)
+                          _infoZeile('Letzte Leerung',
+                              _formatDatum(widget.papierkorb.letzteLeerung!)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Leerungshistorie',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleSmall
+                                ?.copyWith(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        _laedtLeerungen
+                            ? const Center(child: CircularProgressIndicator())
+                            : _leerungen.isEmpty
+                                ? Text('Keine Leerungen',
+                                    style: TextStyle(
+                                        color: Colors.grey.shade500,
+                                        fontSize: 12))
+                                : Column(
+                                    children: _leerungen
+                                        .take(5)
+                                        .map(_leerungZeile)
+                                        .toList()),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
         ],
       ),
     );
   }
 
+  // ----------------------------------------------------------
+  // LEERUNGS-ZEILE
+  // ----------------------------------------------------------
+  Widget _leerungZeile(Leerung l) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.delete_outline,
+            size: 16,
+            color: l.twice ? Colors.orange : Colors.green.shade600,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      _formatDatum(l.geleertAm.toLocal()),
+                      style: const TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w500),
+                    ),
+                    if (l.twice) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade100,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text('2×',
+                            style: TextStyle(
+                                fontSize: 10, color: Colors.orange.shade800)),
+                      ),
+                    ],
+                    if (l.befuellung != null) ...[
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.blue.shade200),
+                        ),
+                        child: Text(
+                          l.befuellung!,
+                          style: TextStyle(
+                              fontSize: 11, color: Colors.blue.shade700),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                if (l.bemerkung != null)
+                  Text(
+                    l.bemerkung!,
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                        fontStyle: FontStyle.italic),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ----------------------------------------------------------
+  // HILFS-WIDGETS
+  // ----------------------------------------------------------
   Widget _buildHeader() {
     return Card(
       child: Padding(
@@ -491,29 +636,27 @@ class _EditScreenState extends State<EditScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Papierkorb #${widget.papierkorb.nummer}',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
+            Text('Papierkorb #${widget.papierkorb.nummer}',
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Text(
-              '${widget.papierkorb.strassenName ?? "Unbekannte Straße"} ${widget.papierkorb.hausnummer ?? ""}',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Colors.grey[600],
-                  ),
+              '${widget.papierkorb.strassenName ?? "Unbekannte Straße"} '
+              '${widget.papierkorb.hausnummer ?? ""}',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(color: Colors.grey[600]),
             ),
-            if (widget.papierkorb.beschreibung != null &&
-                widget.papierkorb.beschreibung!.isNotEmpty)
+            if (widget.papierkorb.beschreibung != null)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Text(
                   widget.papierkorb.beschreibung!,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.grey[500],
-                        fontStyle: FontStyle.italic,
-                      ),
+                      color: Colors.grey[500], fontStyle: FontStyle.italic),
                 ),
               ),
           ],
@@ -529,14 +672,53 @@ class _EditScreenState extends State<EditScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Stammdaten',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+            Text('Stammdaten',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            _strassenSucheBox(),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _hausnummerCtrl,
+              decoration: const InputDecoration(
+                  labelText: 'Hausnummer', border: OutlineInputBorder()),
             ),
             const SizedBox(height: 16),
-            _formularFelder(),
+            DropdownButtonFormField<String>(
+              value: _bauartId,
+              decoration: const InputDecoration(
+                  labelText: 'Bauart', border: OutlineInputBorder()),
+              items: [
+                const DropdownMenuItem(
+                    value: null, child: Text('— keine Angabe —')),
+                ..._bauarten.map((b) => DropdownMenuItem(
+                    value: b['id'].toString(),
+                    child: Text(b['beschreibung'] as String))),
+              ],
+              onChanged: (v) => setState(() => _bauartId = v),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _beschreibungCtrl,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                  labelText: 'Beschreibung / Notiz',
+                  border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              value: _status,
+              decoration: const InputDecoration(
+                  labelText: 'Status', border: OutlineInputBorder()),
+              items: const [
+                DropdownMenuItem(value: 'ok', child: Text('OK')),
+                DropdownMenuItem(value: 'defekt', child: Text('Defekt')),
+                DropdownMenuItem(value: 'schmutzig', child: Text('Schmutzig')),
+              ],
+              onChanged: (v) => setState(() => _status = v!),
+            ),
           ],
         ),
       ),
@@ -544,264 +726,21 @@ class _EditScreenState extends State<EditScreen> {
   }
 
   Widget _buildActions() {
-    return Row(
-      children: [
-        Expanded(
-          child: FilledButton.icon(
-            onPressed: _speichert ? null : _speichern,
-            icon: _speichert
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.save),
-            label: Text(_speichert ? 'Speichert...' : 'Speichern'),
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-      ],
-    );
-  }
-
-  Widget _buildInfoPanel() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Zusatzinformationen',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 16),
-              _buildInfoItem('Koordinaten',
-                  '${widget.papierkorb.lat}, ${widget.papierkorb.lng}'),
-              _buildInfoItem('Status', _status.toUpperCase()),
-              _buildInfoItem('Bauart', _getBauartName()),
-              _buildInfoItem('Straße',
-                  '${widget.papierkorb.strassenName ?? "-"} (ID: ${widget.papierkorb.strassenId ?? "-"})'),
-              const SizedBox(height: 16),
-              const Divider(),
-              const SizedBox(height: 16),
-              Text(
-                'Letzte Änderung',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Erstellt am: ${_formatDatum(widget.papierkorb.erstelltAm)}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              if (widget.papierkorb.letzteLeerung != null)
-                Text(
-                  'Letzte Leerung: ${_formatDatum(widget.papierkorb.letzteLeerung!)}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              const SizedBox(height: 16),
-              const Divider(),
-              const SizedBox(height: 16),
-              Text(
-                'Historie',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Historie-Funktion wird implementiert...',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontStyle: FontStyle.italic,
-                    ),
-              ),
-            ],
-          ),
-        ),
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        onPressed: _speichert ? null : _speichern,
+        icon: _speichert
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.white))
+            : const Icon(Icons.save),
+        label: Text(_speichert ? 'Speichert...' : 'Speichern'),
+        style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 16)),
       ),
-    );
-  }
-
-  Widget _buildInfoItem(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              '$label:',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _getBauartName() {
-    if (_bauartId == null || _bauarten.isEmpty) {
-      return 'Nicht zugewiesen';
-    }
-
-    final bauart = _bauarten.firstWhere(
-      (b) => b['id'].toString() == _bauartId,
-      orElse: () => {'beschreibung': 'Unbekannte Bauart'},
-    );
-
-    return bauart['beschreibung'] as String? ?? 'Unbekannte Bauart';
-  }
-
-  Widget _buildHistorieEintrag({
-    required DateTime datum,
-    required String typ,
-    required String bemerkung,
-  }) {
-    Color typColor;
-    IconData typIcon;
-
-    switch (typ.toLowerCase()) {
-      case 'leerung':
-        typColor = Colors.green;
-        typIcon = Icons.delete_outline;
-        break;
-      case 'statusänderung':
-        typColor = Colors.orange;
-        typIcon = Icons.edit_note;
-        break;
-      case 'wartung':
-        typColor = Colors.blue;
-        typIcon = Icons.build;
-        break;
-      default:
-        typColor = Colors.grey;
-        typIcon = Icons.info_outline;
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: typColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Icon(typIcon, size: 16, color: typColor),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      typ,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: typColor,
-                        fontSize: 12,
-                      ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      _formatDatum(datum),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.grey.shade600,
-                            fontSize: 11,
-                          ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  bemerkung,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontSize: 12,
-                      ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatDatum(DateTime datum) {
-    return '${datum.day.toString().padLeft(2, '0')}.${datum.month.toString().padLeft(2, '0')}.${datum.year} ${datum.hour.toString().padLeft(2, '0')}:${datum.minute.toString().padLeft(2, '0')}';
-  }
-
-  Widget _formularFelder() {
-    return Column(
-      children: [
-        _strassenSucheBox(),
-        const SizedBox(height: 16),
-        TextField(
-            controller: _hausnummerCtrl,
-            decoration: const InputDecoration(
-                labelText: 'Hausnummer', border: OutlineInputBorder())),
-        const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          value: _bauartId,
-          decoration: const InputDecoration(
-              labelText: 'Bauart', border: OutlineInputBorder()),
-          items: _bauarten
-              .map((b) => DropdownMenuItem(
-                  value: b['id'].toString(), child: Text(b['beschreibung'])))
-              .toList(),
-          onChanged: (v) => setState(() => _bauartId = v),
-        ),
-        const SizedBox(height: 16),
-        TextField(
-            controller: _beschreibungCtrl,
-            maxLines: 3,
-            decoration: const InputDecoration(
-                labelText: 'Beschreibung / Notiz',
-                border: OutlineInputBorder())),
-        const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          value: _status,
-          decoration: const InputDecoration(
-              labelText: 'Verwaltungs-Status', border: OutlineInputBorder()),
-          items: const [
-            DropdownMenuItem(value: 'ok', child: Text('OK (In Betrieb)')),
-            DropdownMenuItem(
-                value: 'defekt', child: Text('Defekt (Reparatur nötig)')),
-            DropdownMenuItem(
-                value: 'schmutzig', child: Text('Schmutzig (Reinigung nötig)')),
-            DropdownMenuItem(
-                value: 'archiviert', child: Text('Archiviert (Abgebaut)')),
-          ],
-          onChanged: (v) => setState(() => _status = v!),
-        ),
-      ],
     );
   }
 
@@ -815,26 +754,42 @@ class _EditScreenState extends State<EditScreen> {
         children: [
           TextField(
             controller: _strassenSuchCtrl,
-            decoration: const InputDecoration(
-                hintText: 'Straße suchen...',
-                prefixIcon: Icon(Icons.search),
-                isDense: true),
+            decoration: InputDecoration(
+              hintText: 'Straße suchen...',
+              prefixIcon: const Icon(Icons.search),
+              isDense: true,
+              suffixIcon: _strassenSuchCtrl.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () {
+                        _strassenSuchCtrl.clear();
+                        _strassenFiltern();
+                      },
+                    )
+                  : null,
+            ),
           ),
           const SizedBox(height: 8),
           SizedBox(
             height: 150,
             child: ListView.builder(
               itemCount: _strassenListe.length,
-              itemBuilder: (context, i) {
+              itemBuilder: (_, i) {
                 final s = _strassenListe[i];
                 final sel = s['id'] == _strassenId;
                 return ListTile(
-                  title: Text(s['name'],
+                  dense: true,
+                  title: Text(s['name'] as String,
                       style: TextStyle(
                           fontWeight:
                               sel ? FontWeight.bold : FontWeight.normal)),
                   selected: sel,
-                  onTap: () => setState(() => _strassenId = s['id']),
+                  selectedTileColor: Colors.green.shade50,
+                  trailing: sel
+                      ? Icon(Icons.check,
+                          color: Colors.green.shade600, size: 18)
+                      : null,
+                  onTap: () => setState(() => _strassenId = s['id'] as int),
                 );
               },
             ),
@@ -850,30 +805,84 @@ class _EditScreenState extends State<EditScreen> {
       options: MapOptions(
         initialCenter: LatLng(_lat, _lng),
         initialZoom: 18,
-        onTap: (tapPos, point) => setState(() {
-          _lat = point.latitude;
-          _lng = point.longitude;
+        onTap: (_, punkt) => setState(() {
+          _lat = punkt.latitude;
+          _lng = punkt.longitude;
         }),
       ),
       children: [
         TileLayer(
-            urlTemplate:
-                'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'),
+          urlTemplate:
+              'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+          userAgentPackageName: 'de.stadt.papierkorb_app',
+        ),
         Opacity(
-          opacity: 0.7,
+          opacity: 0.4,
           child: TileLayer(
-              urlTemplate:
-                  'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png'),
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'de.stadt.papierkorb_app',
+          ),
         ),
         MarkerLayer(markers: [
           Marker(
-              point: LatLng(_lat, _lng),
-              width: 50,
-              height: 50,
-              child:
-                  const Icon(Icons.location_on, color: Colors.red, size: 50)),
+            point: LatLng(_lat, _lng),
+            width: 48,
+            height: 48,
+            child: const Icon(
+              Icons.location_pin,
+              color: Colors.orange,
+              size: 48,
+              shadows: [
+                Shadow(
+                    color: Colors.black54, blurRadius: 6, offset: Offset(2, 2))
+              ],
+            ),
+          ),
         ]),
       ],
+    );
+  }
+
+  Widget _fotoButton({
+    required Color color,
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 16, color: Colors.white),
+        tooltip: tooltip,
+        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+        padding: const EdgeInsets.all(8),
+      ),
+    );
+  }
+
+  Widget _infoZeile(String label, String wert) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 90,
+            child: Text('$label:',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+          ),
+          Expanded(
+            child: Text(wert, style: Theme.of(context).textTheme.bodySmall),
+          ),
+        ],
+      ),
     );
   }
 }
