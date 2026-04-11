@@ -202,7 +202,7 @@ class _EditScreenState extends State<EditScreen> {
   Widget _buildDesktopLayout() {
     return Row(
       children: [
-        // Links: Formular
+        // LINKS: Formular
         SizedBox(
           width: 500,
           child: SingleChildScrollView(
@@ -237,11 +237,11 @@ class _EditScreenState extends State<EditScreen> {
 
         const VerticalDivider(width: 1),
 
-        // Rechts: Karte + Foto + Info + Historie
+        // RECHTS: Karte + Foto + Info + Historie
         Expanded(
           child: Column(
             children: [
-              // Oben: Karte + Foto
+              // OBEN: Karte + Foto
               Expanded(
                 flex: 2,
                 child: Row(
@@ -308,6 +308,19 @@ class _EditScreenState extends State<EditScreen> {
                                                     size: 40,
                                                     color: Colors.grey)),
                                   ),
+                                  Positioned.fill(
+                                    child: GestureDetector(
+                                      onTap: () {
+                                        if (_neuesFotoBytes != null)
+                                          _showPhotoDialog(
+                                              _neuesFotoBytes!, 'Neues Foto');
+                                        else if (widget.papierkorb.fotoUrl !=
+                                            null)
+                                          _showPhotoDialog(
+                                              null, widget.papierkorb.fotoUrl!);
+                                      },
+                                    ),
+                                  ),
                                   Positioned(
                                     bottom: 8,
                                     right: 8,
@@ -315,20 +328,18 @@ class _EditScreenState extends State<EditScreen> {
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         _fotoButton(
-                                          color: Colors.blue,
-                                          icon: Icons.folder_open,
-                                          tooltip: 'Bild auswählen',
-                                          onPressed: _fotoWaehlen,
-                                        ),
+                                            color: Colors.blue,
+                                            icon: Icons.folder_open,
+                                            tooltip: 'Bild auswählen',
+                                            onPressed: _fotoWaehlen),
                                         if (_neuesFotoBytes != null) ...[
                                           const SizedBox(width: 4),
                                           _fotoButton(
-                                            color: Colors.orange,
-                                            icon: Icons.refresh,
-                                            tooltip: 'Zurück zum Original',
-                                            onPressed: () => setState(
-                                                () => _neuesFotoBytes = null),
-                                          ),
+                                              color: Colors.orange,
+                                              icon: Icons.refresh,
+                                              tooltip: 'Zurück zum Original',
+                                              onPressed: () => setState(() =>
+                                                  _neuesFotoBytes = null)),
                                         ],
                                       ],
                                     ),
@@ -344,7 +355,7 @@ class _EditScreenState extends State<EditScreen> {
                 ),
               ),
 
-              // Unten: Zusatzinfos + Historie NEBENEINANDER
+              // UNTEN: Info + Historie
               Expanded(
                 flex: 1,
                 child: Padding(
@@ -352,7 +363,7 @@ class _EditScreenState extends State<EditScreen> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Zusatzinformationen
+                      // Zusatzinfos
                       Expanded(
                         child: Card(
                           child: Padding(
@@ -371,10 +382,8 @@ class _EditScreenState extends State<EditScreen> {
                                   child: SingleChildScrollView(
                                     child: Column(
                                       children: [
-                                        _infoZeile(
-                                            'Koordinaten',
-                                            '${_lat.toStringAsFixed(5)}, '
-                                                '${_lng.toStringAsFixed(5)}'),
+                                        _infoZeile('Koordinaten',
+                                            '${_lat.toStringAsFixed(5)}, ${_lng.toStringAsFixed(5)}'),
                                         _infoZeile(
                                             'Status', _status.toUpperCase()),
                                         _infoZeile('Bauart', _getBauartName()),
@@ -401,10 +410,8 @@ class _EditScreenState extends State<EditScreen> {
                           ),
                         ),
                       ),
-
                       const SizedBox(width: 8),
-
-                      // Leerungshistorie aus Supabase
+                      // Historie
                       Expanded(
                         child: Card(
                           child: Padding(
@@ -424,20 +431,16 @@ class _EditScreenState extends State<EditScreen> {
                                       ? const Center(
                                           child: CircularProgressIndicator())
                                       : _leerungen.isEmpty
-                                          ? Text(
-                                              'Noch keine Leerungen erfasst',
+                                          ? Text('Noch keine Leerungen erfasst',
                                               style: TextStyle(
                                                   color: Colors.grey.shade500,
-                                                  fontStyle: FontStyle.italic),
-                                            )
+                                                  fontStyle: FontStyle.italic))
                                           : ListView.separated(
                                               itemCount: _leerungen.length,
                                               separatorBuilder: (_, __) =>
                                                   const Divider(height: 8),
-                                              itemBuilder: (_, i) {
-                                                final l = _leerungen[i];
-                                                return _leerungZeile(l);
-                                              },
+                                              itemBuilder: (_, i) =>
+                                                  _leerungZeile(_leerungen[i]),
                                             ),
                                 ),
                               ],
@@ -840,6 +843,51 @@ class _EditScreenState extends State<EditScreen> {
           ),
         ]),
       ],
+    );
+  }
+
+  // ----------------------------------------------------------
+  // FOTO-DIALOG FÜR GROẞANZEIGT
+  // ----------------------------------------------------------
+  void _showPhotoDialog(Uint8List? bytes, String url) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.9,
+          height: MediaQuery.of(context).size.height * 0.9,
+          child: Stack(
+            children: [
+              // Schließen-Button
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.black.withOpacity(0.5),
+                  ),
+                ),
+              ),
+              // Foto in voller Größe mit Web-kompatiblem Zoom
+              Center(
+                child: InteractiveViewer(
+                  minScale: 1.0,
+                  maxScale: 4.0,
+                  boundaryMargin: const EdgeInsets.all(20),
+                  child: bytes != null
+                      ? Image.memory(bytes, fit: BoxFit.contain)
+                      : CachedNetworkImage(
+                          imageUrl: url,
+                          fit: BoxFit.contain,
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

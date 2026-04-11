@@ -152,19 +152,26 @@ class _DetailScreenState extends State<DetailScreen> {
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(8),
                           child: pk.fotoUrl != null
-                              ? CachedNetworkImage(
-                                  imageUrl: pk.fotoUrl!,
-                                  fit: BoxFit.cover,
-                                  placeholder: (context, url) => const Center(
-                                    child: CircularProgressIndicator(),
+                              ? GestureDetector(
+                                  onTap: () => _showPhotoDialog(pk.fotoUrl!),
+                                  child: Hero(
+                                    tag: 'photo_${pk.id}',
+                                    child: CachedNetworkImage(
+                                      imageUrl: pk.fotoUrl!,
+                                      fit: BoxFit.cover,
+                                      placeholder: (context, url) =>
+                                          const Center(
+                                        child: CircularProgressIndicator(),
+                                      ),
+                                      errorWidget: (context, url, error) {
+                                        return Container(
+                                          color: Colors.grey.shade200,
+                                          child: const Icon(Icons.photo,
+                                              color: Colors.grey),
+                                        );
+                                      },
+                                    ),
                                   ),
-                                  errorWidget: (context, url, error) {
-                                    return Container(
-                                      color: Colors.grey.shade200,
-                                      child: const Icon(Icons.photo,
-                                          color: Colors.grey),
-                                    );
-                                  },
                                 )
                               : Container(
                                   color: Colors.grey.shade200,
@@ -384,5 +391,50 @@ class _DetailScreenState extends State<DetailScreen> {
 
   String _formatDatum(DateTime datum) {
     return '${datum.day.toString().padLeft(2, '0')}.${datum.month.toString().padLeft(2, '0')}.${datum.year}';
+  }
+
+  // ----------------------------------------------------------
+  // FOTO-DIALOG FÜR GROẞANZEIGT
+  // ----------------------------------------------------------
+  void _showPhotoDialog(String url) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.95,
+          height: MediaQuery.of(context).size.height * 0.95,
+          child: Stack(
+            children: [
+              // Schließen-Button
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.black.withOpacity(0.5),
+                  ),
+                ),
+              ),
+              // Foto in voller Größe
+              Center(
+                child: InteractiveViewer(
+                  minScale: 1.0,
+                  maxScale: 4.0,
+                  child: Hero(
+                    tag: 'photo_${widget.papierkorb.id}',
+                    child: CachedNetworkImage(
+                      imageUrl: url,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
