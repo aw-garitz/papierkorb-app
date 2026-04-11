@@ -59,6 +59,9 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
   Future<void> _ladeStrassen() async {
     try {
       final liste = await _service.strassen();
+      // Sortieren nach Straßennamen A-Z
+      liste
+          .sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
       setState(() {
         _allStrassen = liste;
         _strassenListe = liste;
@@ -84,13 +87,16 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
   void _strassenFiltern() {
     final suche = _strassenSuchCtrl.text.toLowerCase();
     setState(() {
-      _strassenListe = suche.isEmpty
-          ? _allStrassen
-          : _allStrassen
-              .where((s) =>
-                  (s['name'] as String).toLowerCase().contains(suche) ||
-                  (s['stadtteil'] as String).toLowerCase().contains(suche))
-              .toList();
+      if (suche.isEmpty) {
+        _strassenListe = _allStrassen;
+      } else {
+        _strassenListe = _allStrassen
+            .where((s) => (s['name'] as String).toLowerCase().contains(suche))
+            .toList();
+        // Gefilterte Liste auch sortieren A-Z
+        _strassenListe.sort(
+            (a, b) => (a['name'] as String).compareTo(b['name'] as String));
+      }
     });
   }
 

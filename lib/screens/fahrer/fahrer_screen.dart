@@ -75,6 +75,19 @@ class _FahrerScreenState extends State<FahrerScreen>
           desiredAccuracy: LocationAccuracy.high);
 
       final liste = await _service.alleAktiven();
+      // Sortieren: 1. nach Stadtteil, 2. nach Straßennamen (wie Backoffice)
+      liste.sort((a, b) {
+        // Stadtteil vergleichen (null kommt am Ende)
+        final stadtteilA = a.stadtteil?.toLowerCase() ?? '';
+        final stadtteilB = b.stadtteil?.toLowerCase() ?? '';
+        final stadtteilCompare = stadtteilA.compareTo(stadtteilB);
+        if (stadtteilCompare != 0) return stadtteilCompare;
+
+        // Bei gleichem Stadtteil nach Straße sortieren
+        final strasseA = a.adresse.toLowerCase();
+        final strasseB = b.adresse.toLowerCase();
+        return strasseA.compareTo(strasseB);
+      });
 
       if (mounted) {
         setState(() {
@@ -89,6 +102,19 @@ class _FahrerScreenState extends State<FahrerScreen>
     } catch (e) {
       debugPrint("Initialisierungsfehler: $e");
       final liste = await _service.alleAktiven();
+      // Sortieren: 1. nach Stadtteil, 2. nach Straßennamen (wie Backoffice)
+      liste.sort((a, b) {
+        // Stadtteil vergleichen (null kommt am Ende)
+        final stadtteilA = a.stadtteil?.toLowerCase() ?? '';
+        final stadtteilB = b.stadtteil?.toLowerCase() ?? '';
+        final stadtteilCompare = stadtteilA.compareTo(stadtteilB);
+        if (stadtteilCompare != 0) return stadtteilCompare;
+
+        // Bei gleichem Stadtteil nach Straße sortieren
+        final strasseA = a.adresse.toLowerCase();
+        final strasseB = b.adresse.toLowerCase();
+        return strasseA.compareTo(strasseB);
+      });
       if (mounted) {
         setState(() {
           _alle = liste;
@@ -132,6 +158,20 @@ class _FahrerScreenState extends State<FahrerScreen>
 
         return textMatch && geleertMatch;
       }).toList();
+
+      // Gefilterte Liste auch sortieren: 1. nach Stadtteil, 2. nach Straßennamen (wie Backoffice)
+      _gefiltert.sort((a, b) {
+        // Stadtteil vergleichen (null kommt am Ende)
+        final stadtteilA = a.stadtteil?.toLowerCase() ?? '';
+        final stadtteilB = b.stadtteil?.toLowerCase() ?? '';
+        final stadtteilCompare = stadtteilA.compareTo(stadtteilB);
+        if (stadtteilCompare != 0) return stadtteilCompare;
+
+        // Bei gleichem Stadtteil nach Straße sortieren
+        final strasseA = a.adresse.toLowerCase();
+        final strasseB = b.adresse.toLowerCase();
+        return strasseA.compareTo(strasseB);
+      });
     });
   }
 
