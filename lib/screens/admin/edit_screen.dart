@@ -311,13 +311,14 @@ class _EditScreenState extends State<EditScreen> {
                                   Positioned.fill(
                                     child: GestureDetector(
                                       onTap: () {
-                                        if (_neuesFotoBytes != null)
+                                        if (_neuesFotoBytes != null) {
                                           _showPhotoDialog(
                                               _neuesFotoBytes!, 'Neues Foto');
-                                        else if (widget.papierkorb.fotoUrl !=
-                                            null)
+                                        } else if (widget.papierkorb.fotoUrl !=
+                                            null) {
                                           _showPhotoDialog(
                                               null, widget.papierkorb.fotoUrl!);
+                                        }
                                       },
                                     ),
                                   ),
