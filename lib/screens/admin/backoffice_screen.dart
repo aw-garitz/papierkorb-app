@@ -1,7 +1,13 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:excel/excel.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:html' as html;
 import '../../models/papierkorb.dart';
+import '../../models/leerung.dart';
 import '../../services/papierkorb_service.dart';
 import 'meldungen_screen.dart';
 
@@ -22,7 +28,7 @@ class _BackofficeScreenState extends State<BackofficeScreen>
   List<Papierkorb> _alle = [];
   List<Papierkorb> _gefiltert = [];
   bool _laedt = true;
-  String _filterStatus = 'alle'; // 'alle', 'geleert', 'nicht_geleert'
+  String _filterStatus = 'alle';
 
   @override
   void initState() {
@@ -45,18 +51,12 @@ class _BackofficeScreenState extends State<BackofficeScreen>
     setState(() => _laedt = true);
     try {
       final liste = await _service.alleAktiven();
-      // Sortieren: 1. nach Stadtteil, 2. nach Straßennamen
       liste.sort((a, b) {
-        // Stadtteil vergleichen (null kommt am Ende)
         final stadtteilA = a.stadtteil?.toLowerCase() ?? '';
         final stadtteilB = b.stadtteil?.toLowerCase() ?? '';
         final stadtteilCompare = stadtteilA.compareTo(stadtteilB);
         if (stadtteilCompare != 0) return stadtteilCompare;
-
-        // Bei gleichem Stadtteil nach Straße sortieren
-        final strasseA = a.adresse.toLowerCase();
-        final strasseB = b.adresse.toLowerCase();
-        return strasseA.compareTo(strasseB);
+        return a.adresse.toLowerCase().compareTo(b.adresse.toLowerCase());
       });
       if (mounted) {
         setState(() {
@@ -76,13 +76,10 @@ class _BackofficeScreenState extends State<BackofficeScreen>
     final suche = _suchCtrl.text.toLowerCase();
     setState(() {
       _gefiltert = _alle.where((pk) {
-        // Text-Suche
-        final matchAdresse = pk.adresse.toLowerCase().contains(suche);
-        final matchNummer = pk.nummer.toString().contains(suche);
-        final matchStadt = (pk.stadtteil ?? "").toLowerCase().contains(suche);
-        final textMatch = matchAdresse || matchNummer || matchStadt;
+        final textMatch = pk.adresse.toLowerCase().contains(suche) ||
+            pk.nummer.toString().contains(suche) ||
+            (pk.stadtteil ?? "").toLowerCase().contains(suche);
 
-        // Status-Filter
         bool statusMatch = true;
         switch (_filterStatus) {
           case 'geleert':
@@ -91,10 +88,8 @@ class _BackofficeScreenState extends State<BackofficeScreen>
           case 'nicht_geleert':
             statusMatch = !pk.heuteGeleert;
             break;
-          case 'alle':
           default:
             statusMatch = true;
-            break;
         }
 
         return textMatch && statusMatch;
@@ -102,8 +97,306 @@ class _BackofficeScreenState extends State<BackofficeScreen>
     });
   }
 
-  bool _istHeuteGeleert(Papierkorb pk) {
-    return pk.heuteGeleert;
+  bool _istHeuteGeleert(Papierkorb pk) => pk.heuteGeleert;
+
+  // --- Excel Export Methoden ---
+
+  void _fuellePapierkoerbeSheet(Sheet sheet) {
+    final headers = [
+      'ID',
+      'Nummer',
+      'Straße',
+      'Hausnummer',
+      'Stadtteil',
+      'Bauart',
+      'Status',
+      'Beschreibung',
+      'Latitude',
+      'Longitude',
+      'Erstellt am'
+    ];
+    for (int i = 0; i < headers.length; i++) {
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
+          .value = TextCellValue(headers[i]);
+    }
+    for (int i = 0; i < _gefiltert.length; i++) {
+      final pk = _gefiltert[i];
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i + 1))
+          .value = TextCellValue(pk.id);
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: i + 1))
+          .value = IntCellValue(pk.nummer);
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: i + 1))
+          .value = TextCellValue(pk.strassenName ?? '');
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: i + 1))
+          .value = TextCellValue(pk.hausnummer ?? '');
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: i + 1))
+          .value = TextCellValue(pk.stadtteil ?? '');
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: i + 1))
+          .value = TextCellValue(pk.bauart ?? '');
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: i + 1))
+          .value = TextCellValue(pk.status);
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 7, rowIndex: i + 1))
+          .value = TextCellValue(pk.beschreibung ?? '');
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 8, rowIndex: i + 1))
+          .value = DoubleCellValue(pk.lat);
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 9, rowIndex: i + 1))
+          .value = DoubleCellValue(pk.lng);
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 10, rowIndex: i + 1))
+          .value = TextCellValue(pk.erstelltAm.toIso8601String());
+    }
+  }
+
+  Future<void> _fuelleLeerungenSheet(Sheet sheet) async {
+    final headers = [
+      'ID',
+      'Papierkorb ID',
+      'Geleert am',
+      'Befüllung',
+      'Bemerkung',
+      'Benutzer ID'
+    ];
+    for (int i = 0; i < headers.length; i++) {
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
+          .value = TextCellValue(headers[i]);
+    }
+
+    final response = await Supabase.instance.client
+        .schema('waste')
+        .from('leerungen')
+        .select()
+        .order('geleert_am', ascending: false)
+        .limit(10000);
+
+    final leerungen =
+        (response as List).map((json) => Leerung.fromJson(json)).toList();
+
+    for (int i = 0; i < leerungen.length; i++) {
+      final l = leerungen[i];
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i + 1))
+          .value = TextCellValue(l.id);
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: i + 1))
+          .value = TextCellValue(l.papierkorbId);
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: i + 1))
+          .value = TextCellValue(l.geleertAm.toIso8601String());
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: i + 1))
+          .value = TextCellValue(l.befuellung ?? '');
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: i + 1))
+          .value = TextCellValue(l.bemerkung ?? '');
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: i + 1))
+          .value = TextCellValue(l.benutzerId ?? '');
+    }
+  }
+
+  void _webDownload(List<int>? fileBytes, String fileName) {
+    if (fileBytes == null) return;
+    final blob = html.Blob([fileBytes]);
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute('download', fileName);
+    anchor.click();
+    html.Url.revokeObjectUrl(url);
+  }
+
+  Future<void> _exportierePapierkoerbe() async {
+    try {
+      final excel = Excel.createExcel();
+
+      // Standardblatt löschen
+      if (excel.tables.containsKey('Sheet1')) {
+        excel.delete('Sheet1');
+      }
+
+      final sheet = excel['Papierkörbe'];
+
+      // Header setzen
+      final headers = [
+        'ID',
+        'Nummer',
+        'Straße',
+        'Hausnummer',
+        'Stadtteil',
+        'Bauart',
+        'Status',
+        'Beschreibung',
+        'Latitude',
+        'Longitude',
+        'Erstellt am'
+      ];
+      for (int i = 0; i < headers.length; i++) {
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
+            .value = TextCellValue(headers[i]);
+      }
+
+      // Daten einfügen
+      for (int i = 0; i < _gefiltert.length; i++) {
+        final pk = _gefiltert[i];
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i + 1))
+            .value = TextCellValue(pk.id);
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: i + 1))
+            .value = IntCellValue(pk.nummer);
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: i + 1))
+            .value = TextCellValue(pk.strassenName ?? '');
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: i + 1))
+            .value = TextCellValue(pk.hausnummer ?? '');
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: i + 1))
+            .value = TextCellValue(pk.stadtteil ?? '');
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: i + 1))
+            .value = TextCellValue(pk.bauart ?? '');
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: i + 1))
+            .value = TextCellValue(pk.status);
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 7, rowIndex: i + 1))
+            .value = TextCellValue(pk.beschreibung ?? '');
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 8, rowIndex: i + 1))
+            .value = DoubleCellValue(pk.lat);
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 9, rowIndex: i + 1))
+            .value = DoubleCellValue(pk.lng);
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 10, rowIndex: i + 1))
+            .value = TextCellValue(pk.erstelltAm.toIso8601String());
+      }
+
+      // Download auslösen
+      excel.setDefaultSheet('Papierkörbe');
+      excel.save(fileName: 'Papierkoerbe_Export.xlsx');
+    } catch (e) {
+      debugPrint("Fehler beim Export: $e");
+    }
+  }
+
+  Future<void> _exportiereLeerungen() async {
+    try {
+      final excel = Excel.createExcel();
+
+      // Standardblatt löschen
+      if (excel.tables.containsKey('Sheet1')) {
+        excel.delete('Sheet1');
+      }
+
+      final sheet = excel['Leerungen'];
+
+      // Header setzen
+      final headers = [
+        'ID',
+        'Papierkorb ID',
+        'Geleert am',
+        'Befüllung',
+        'Bemerkung',
+        'Benutzer ID'
+      ];
+      for (int i = 0; i < headers.length; i++) {
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
+            .value = TextCellValue(headers[i]);
+      }
+
+      // Daten aus Supabase laden
+      final response = await Supabase.instance.client
+          .schema('waste')
+          .from('leerungen')
+          .select()
+          .order('geleert_am', ascending: false)
+          .limit(10000);
+
+      final leerungen =
+          (response as List).map((json) => Leerung.fromJson(json)).toList();
+
+      // Daten einfügen
+      for (int i = 0; i < leerungen.length; i++) {
+        final l = leerungen[i];
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i + 1))
+            .value = TextCellValue(l.id);
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: i + 1))
+            .value = TextCellValue(l.papierkorbId);
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: i + 1))
+            .value = TextCellValue(l.geleertAm.toIso8601String());
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: i + 1))
+            .value = TextCellValue(l.befuellung ?? '');
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: i + 1))
+            .value = TextCellValue(l.bemerkung ?? '');
+        sheet
+            .cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: i + 1))
+            .value = TextCellValue(l.benutzerId ?? '');
+      }
+
+      // Download auslösen
+      excel.setDefaultSheet('Leerungen');
+      excel.save(fileName: 'Leerungen_Export.xlsx');
+    } catch (e) {
+      debugPrint("Fehler beim Export: $e");
+    }
+  }
+
+  Future<void> _exportiereAlles() async {
+    try {
+      final excel = Excel.createExcel();
+
+      // 1. Das von der Library automatisch erstellte 'Sheet1' konsequent löschen
+      if (excel.tables.containsKey('Sheet1')) {
+        excel.delete('Sheet1');
+      }
+
+      // 2. Papierkörbe-Daten in ein neues Blatt schreiben
+      final papierkoerbeSheet = excel['Papierkörbe'];
+      _fuellePapierkoerbeSheet(papierkoerbeSheet);
+
+      // 3. Leerungen-Daten in ein zweites Blatt schreiben
+      final leerungenSheet = excel['Leerungen'];
+      await _fuelleLeerungenSheet(leerungenSheet);
+
+      // 4. Als Standard-Sheet das erste Blatt festlegen, damit Excel sauber öffnet
+      excel.setDefaultSheet('Papierkörbe');
+
+      // 5. Download direkt über die Library auslösen
+      // Dies verhindert das manuelle Erzeugen von Anchor-Elementen im DOM
+      excel.save(fileName: 'Backoffice_Gesamtexport.xlsx');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gesamtexport erfolgreich gestartet')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler beim Export: $e')),
+        );
+      }
+    }
   }
 
   @override
@@ -112,6 +405,45 @@ class _BackofficeScreenState extends State<BackofficeScreen>
       appBar: AppBar(
         title: Text('Backoffice Cockpit (${_gefiltert.length})'),
         actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.table_chart),
+            tooltip: 'Excel Export',
+            onSelected: (value) {
+              if (value == 'papierkoerbe') {
+                _exportierePapierkoerbe();
+              } else if (value == 'leerungen') {
+                _exportiereLeerungen();
+              } else if (value == 'alles') {
+                _exportiereAlles();
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'alles',
+                child: Row(children: [
+                  Icon(Icons.table_chart, size: 20),
+                  SizedBox(width: 8),
+                  Text('Alles exportieren (2 Sheets)'),
+                ]),
+              ),
+              const PopupMenuItem(
+                value: 'papierkoerbe',
+                child: Row(children: [
+                  Icon(Icons.table_chart, size: 20),
+                  SizedBox(width: 8),
+                  Text('Nur Papierkörbe'),
+                ]),
+              ),
+              const PopupMenuItem(
+                value: 'leerungen',
+                child: Row(children: [
+                  Icon(Icons.table_chart, size: 20),
+                  SizedBox(width: 8),
+                  Text('Nur Leerungen'),
+                ]),
+              ),
+            ],
+          ),
           IconButton(icon: const Icon(Icons.refresh), onPressed: _laden),
         ],
         bottom: TabBar(
@@ -150,7 +482,6 @@ class _BackofficeScreenState extends State<BackofficeScreen>
           ? Column(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                // Filter-Buttons zentriert unten
                 Container(
                   margin: const EdgeInsets.only(bottom: 16),
                   child: Row(
@@ -164,7 +495,6 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                     ],
                   ),
                 ),
-                // FloatingActionButton rechts
                 FloatingActionButton.extended(
                   onPressed: () async {
                     final res =
@@ -236,7 +566,6 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                   padding: const EdgeInsets.all(12),
                   child: Row(
                     children: [
-                      // Linke Seite: Avatar + Text
                       Expanded(
                         flex: 3,
                         child: Row(
@@ -245,12 +574,15 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                               backgroundColor: erledigt
                                   ? Colors.green
                                   : Colors.orange.shade100,
-                              child: Text(pk.nummer.toString(),
-                                  style: TextStyle(
-                                      color: erledigt
-                                          ? Colors.white
-                                          : Colors.orange.shade900,
-                                      fontWeight: FontWeight.bold)),
+                              child: Text(
+                                pk.nummer.toString(),
+                                style: TextStyle(
+                                  color: erledigt
+                                      ? Colors.white
+                                      : Colors.orange.shade900,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -258,20 +590,22 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                      "${pk.adresse} ${pk.hausnummer ?? ''}${pk.stadtteil != null ? ' - ${pk.stadtteil}' : ''}",
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16)),
+                                    "${pk.adresse} ${pk.hausnummer ?? ''}${pk.stadtteil != null ? ' - ${pk.stadtteil}' : ''}",
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16),
+                                  ),
                                   if (pk.beschreibung != null &&
                                       pk.beschreibung!.isNotEmpty)
                                     Padding(
                                       padding: const EdgeInsets.only(top: 2),
                                       child: Text(
-                                          "Standort: ${pk.beschreibung}",
-                                          style: TextStyle(
-                                              color: Colors.grey.shade700,
-                                              fontSize: 13,
-                                              fontStyle: FontStyle.italic)),
+                                        "Standort: ${pk.beschreibung}",
+                                        style: TextStyle(
+                                            color: Colors.grey.shade700,
+                                            fontSize: 13,
+                                            fontStyle: FontStyle.italic),
+                                      ),
                                     ),
                                   const SizedBox(height: 4),
                                   Row(
@@ -306,7 +640,6 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                           ],
                         ),
                       ),
-                      // Rechte Seite: Buttons nebeneinander
                       Expanded(
                         flex: 2,
                         child: Row(
@@ -332,10 +665,8 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                             IconButton(
                               onPressed: () async {
                                 final res = await Navigator.pushNamed(
-                                  context,
-                                  '/admin/edit',
-                                  arguments: pk,
-                                );
+                                    context, '/admin/edit',
+                                    arguments: pk);
                                 if (res == true) _laden();
                               },
                               icon: const Icon(Icons.edit_note, size: 24),
@@ -373,7 +704,6 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                                     ],
                                   ),
                                 );
-
                                 if (confirmed == true) {
                                   try {
                                     await _service.loeschen(pk.id);
@@ -381,10 +711,9 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                                       ScaffoldMessenger.of(context)
                                           .showSnackBar(
                                         const SnackBar(
-                                          content: Text(
-                                              'Papierkorb erfolgreich gelöscht'),
-                                          backgroundColor: Colors.green,
-                                        ),
+                                            content: Text(
+                                                'Papierkorb erfolgreich gelöscht'),
+                                            backgroundColor: Colors.green),
                                       );
                                       _laden();
                                     }
@@ -393,10 +722,9 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                                       ScaffoldMessenger.of(context)
                                           .showSnackBar(
                                         SnackBar(
-                                          content:
-                                              Text('Fehler beim Löschen: $e'),
-                                          backgroundColor: Colors.red,
-                                        ),
+                                            content:
+                                                Text('Fehler beim Löschen: $e'),
+                                            backgroundColor: Colors.red),
                                       );
                                     }
                                   }
@@ -506,7 +834,7 @@ class _KarteTabState extends State<_KarteTab>
                     Shadow(
                         color: Colors.black45,
                         blurRadius: 4,
-                        offset: Offset(1, 1)),
+                        offset: Offset(1, 1))
                   ],
                 ),
               ),
