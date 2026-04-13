@@ -1,11 +1,8 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:excel/excel.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'dart:html' as html;
 import '../../models/papierkorb.dart';
 import '../../models/leerung.dart';
 import '../../services/papierkorb_service.dart';
@@ -91,7 +88,6 @@ class _BackofficeScreenState extends State<BackofficeScreen>
           default:
             statusMatch = true;
         }
-
         return textMatch && statusMatch;
       }).toList();
     });
@@ -99,7 +95,7 @@ class _BackofficeScreenState extends State<BackofficeScreen>
 
   bool _istHeuteGeleert(Papierkorb pk) => pk.heuteGeleert;
 
-  // --- Excel Export Methoden ---
+  // --- Excel Sheet Füll-Methoden ---
 
   void _fuellePapierkoerbeSheet(Sheet sheet) {
     final headers = [
@@ -206,196 +202,65 @@ class _BackofficeScreenState extends State<BackofficeScreen>
     }
   }
 
-  void _webDownload(List<int>? fileBytes, String fileName) {
-    if (fileBytes == null) return;
-    final blob = html.Blob([fileBytes]);
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    final anchor = html.AnchorElement(href: url)
-      ..setAttribute('download', fileName);
-    anchor.click();
-    html.Url.revokeObjectUrl(url);
-  }
+  // --- Export Methoden ---
+  // Auf Flutter Web macht excel.save(fileName: ...) den Download direkt –
+  // kein manueller Blob/Anchor nötig!
 
   Future<void> _exportierePapierkoerbe() async {
     try {
       final excel = Excel.createExcel();
+      excel.rename('Sheet1', 'Papierkörbe');
+      _fuellePapierkoerbeSheet(excel['Papierkörbe']);
+      excel.save(fileName: 'Papierkörbe_Excel_P.xlsx');
 
-      // Standardblatt löschen
-      if (excel.tables.containsKey('Sheet1')) {
-        excel.delete('Sheet1');
-      }
-
-      final sheet = excel['Papierkörbe'];
-
-      // Header setzen
-      final headers = [
-        'ID',
-        'Nummer',
-        'Straße',
-        'Hausnummer',
-        'Stadtteil',
-        'Bauart',
-        'Status',
-        'Beschreibung',
-        'Latitude',
-        'Longitude',
-        'Erstellt am'
-      ];
-      for (int i = 0; i < headers.length; i++) {
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
-            .value = TextCellValue(headers[i]);
-      }
-
-      // Daten einfügen
-      for (int i = 0; i < _gefiltert.length; i++) {
-        final pk = _gefiltert[i];
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i + 1))
-            .value = TextCellValue(pk.id);
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: i + 1))
-            .value = IntCellValue(pk.nummer);
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: i + 1))
-            .value = TextCellValue(pk.strassenName ?? '');
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: i + 1))
-            .value = TextCellValue(pk.hausnummer ?? '');
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: i + 1))
-            .value = TextCellValue(pk.stadtteil ?? '');
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: i + 1))
-            .value = TextCellValue(pk.bauart ?? '');
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: i + 1))
-            .value = TextCellValue(pk.status);
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 7, rowIndex: i + 1))
-            .value = TextCellValue(pk.beschreibung ?? '');
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 8, rowIndex: i + 1))
-            .value = DoubleCellValue(pk.lat);
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 9, rowIndex: i + 1))
-            .value = DoubleCellValue(pk.lng);
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 10, rowIndex: i + 1))
-            .value = TextCellValue(pk.erstelltAm.toIso8601String());
-      }
-
-      // Download auslösen
-      excel.setDefaultSheet('Papierkörbe');
-      excel.save(fileName: 'Papierkoerbe_Export.xlsx');
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Papierkörbe Excel heruntergeladen')),
+        );
     } catch (e) {
-      debugPrint("Fehler beim Export: $e");
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler beim Export: $e')),
+        );
     }
   }
 
   Future<void> _exportiereLeerungen() async {
     try {
       final excel = Excel.createExcel();
+      excel.rename('Sheet1', 'Leerungen');
+      await _fuelleLeerungenSheet(excel['Leerungen']);
+      excel.save(fileName: 'Papierkörbe_Excel_L.xlsx');
 
-      // Standardblatt löschen
-      if (excel.tables.containsKey('Sheet1')) {
-        excel.delete('Sheet1');
-      }
-
-      final sheet = excel['Leerungen'];
-
-      // Header setzen
-      final headers = [
-        'ID',
-        'Papierkorb ID',
-        'Geleert am',
-        'Befüllung',
-        'Bemerkung',
-        'Benutzer ID'
-      ];
-      for (int i = 0; i < headers.length; i++) {
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
-            .value = TextCellValue(headers[i]);
-      }
-
-      // Daten aus Supabase laden
-      final response = await Supabase.instance.client
-          .schema('waste')
-          .from('leerungen')
-          .select()
-          .order('geleert_am', ascending: false)
-          .limit(10000);
-
-      final leerungen =
-          (response as List).map((json) => Leerung.fromJson(json)).toList();
-
-      // Daten einfügen
-      for (int i = 0; i < leerungen.length; i++) {
-        final l = leerungen[i];
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i + 1))
-            .value = TextCellValue(l.id);
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: i + 1))
-            .value = TextCellValue(l.papierkorbId);
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: i + 1))
-            .value = TextCellValue(l.geleertAm.toIso8601String());
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: i + 1))
-            .value = TextCellValue(l.befuellung ?? '');
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: i + 1))
-            .value = TextCellValue(l.bemerkung ?? '');
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: i + 1))
-            .value = TextCellValue(l.benutzerId ?? '');
-      }
-
-      // Download auslösen
-      excel.setDefaultSheet('Leerungen');
-      excel.save(fileName: 'Leerungen_Export.xlsx');
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Leerungen Excel heruntergeladen')),
+        );
     } catch (e) {
-      debugPrint("Fehler beim Export: $e");
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler beim Leerungen-Export: $e')),
+        );
     }
   }
 
   Future<void> _exportiereAlles() async {
     try {
       final excel = Excel.createExcel();
+      excel.rename('Sheet1', 'Papierkörbe');
+      _fuellePapierkoerbeSheet(excel['Papierkörbe']);
+      await _fuelleLeerungenSheet(excel['Leerungen']);
+      excel.save(fileName: 'Papierkörbe_Excel.xlsx');
 
-      // 1. Das von der Library automatisch erstellte 'Sheet1' konsequent löschen
-      if (excel.tables.containsKey('Sheet1')) {
-        excel.delete('Sheet1');
-      }
-
-      // 2. Papierkörbe-Daten in ein neues Blatt schreiben
-      final papierkoerbeSheet = excel['Papierkörbe'];
-      _fuellePapierkoerbeSheet(papierkoerbeSheet);
-
-      // 3. Leerungen-Daten in ein zweites Blatt schreiben
-      final leerungenSheet = excel['Leerungen'];
-      await _fuelleLeerungenSheet(leerungenSheet);
-
-      // 4. Als Standard-Sheet das erste Blatt festlegen, damit Excel sauber öffnet
-      excel.setDefaultSheet('Papierkörbe');
-
-      // 5. Download direkt über die Library auslösen
-      // Dies verhindert das manuelle Erzeugen von Anchor-Elementen im DOM
-      excel.save(fileName: 'Backoffice_Gesamtexport.xlsx');
-
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Gesamtexport erfolgreich gestartet')),
+          const SnackBar(content: Text('Backoffice Excel heruntergeladen')),
         );
-      }
     } catch (e) {
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Fehler beim Export: $e')),
         );
-      }
     }
   }
 
@@ -467,10 +332,8 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                   initialeListe: _alle,
                   onMarkerTap: (pk) async {
                     final res = await Navigator.pushNamed(
-                      context,
-                      '/admin/edit',
-                      arguments: pk,
-                    );
+                        context, '/admin/edit',
+                        arguments: pk);
                     if (res == true) _laden();
                   },
                   heuteGeleertChecker: _istHeuteGeleert,
