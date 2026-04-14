@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:excel/excel.dart';
+import 'package:papierkorb_app/screens/admin/einmessen_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/papierkorb.dart';
 import '../../models/leerung.dart';
@@ -360,9 +361,13 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                 ),
                 FloatingActionButton.extended(
                   onPressed: () async {
-                    final res =
-                        await Navigator.pushNamed(context, '/admin/einmessen');
-                    if (res == true) _laden();
+                    final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const EinmessenScreen()));
+                    if (result == true) {
+                      _laden(); // Lädt die Liste und Karte im HomeScreen sofort neu
+                    }
                   },
                   icon: const Icon(Icons.add),
                   label: const Text('Neuer Papierkorb'),

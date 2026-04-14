@@ -4,6 +4,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:papierkorb_app/main.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/papierkorb.dart';
 import '../../models/leerung.dart';
 import '../../services/papierkorb_service.dart';
@@ -756,22 +758,35 @@ class _EditScreenState extends State<EditScreen> {
           borderRadius: BorderRadius.circular(8)),
       child: Column(
         children: [
-          TextField(
-            controller: _strassenSuchCtrl,
-            decoration: InputDecoration(
-              hintText: 'Straße suchen...',
-              prefixIcon: const Icon(Icons.search),
-              isDense: true,
-              suffixIcon: _strassenSuchCtrl.text.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear, size: 18),
-                      onPressed: () {
-                        _strassenSuchCtrl.clear();
-                        _strassenFiltern();
-                      },
-                    )
-                  : null,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _strassenSuchCtrl,
+                  decoration: InputDecoration(
+                    hintText: 'Straße suchen...',
+                    prefixIcon: const Icon(Icons.search),
+                    isDense: true,
+                    suffixIcon: _strassenSuchCtrl.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 18),
+                            onPressed: () {
+                              _strassenSuchCtrl.clear();
+                              _strassenFiltern();
+                            },
+                          )
+                        : null,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Hier ist dein neuer Button
+              IconButton.filledTonal(
+                icon: const Icon(Icons.add_location_alt),
+                tooltip: 'Neue Straße hinzufügen',
+                onPressed: () => _neueStrasseDialog(context),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           SizedBox(
@@ -931,6 +946,75 @@ class _EditScreenState extends State<EditScreen> {
             child: Text(wert, style: Theme.of(context).textTheme.bodySmall),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _neueStrasseDialog(BuildContext context) async {
+    final nameCtrl = TextEditingController();
+    final List<String> stadtteile = [
+      'Albertshausen',
+      'Arnshausen',
+      'Bad Kissingen',
+      'Garitz',
+      'Hausen',
+      'Kleinbrach',
+      'Poppenroth',
+      'Reiterswiesen',
+      'Winkels',
+    ];
+    String gewaehlterStadtteil = stadtteile.first;
+
+    return showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Neue Straße hinzufügen'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(
+                    labelText: 'Name der Straße', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 15),
+              DropdownButtonFormField<String>(
+                value: gewaehlterStadtteil,
+                decoration: const InputDecoration(
+                    labelText: 'Stadtteil', border: OutlineInputBorder()),
+                items: stadtteile
+                    .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                    .toList(),
+                onChanged: (val) =>
+                    setDialogState(() => gewaehlterStadtteil = val!),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Abbrechen')),
+            ElevatedButton(
+              onPressed: () async {
+                if (nameCtrl.text.isNotEmpty) {
+                  // In Supabase einfügen
+                  await Supabase.instance.client.from('strassen').insert({
+                    'name': nameCtrl.text.trim(),
+                    'stadtteil': gewaehlterStadtteil
+                  });
+                  if (mounted) {
+                    Navigator.pop(context);
+                    _ladeDaten(); // Lädt die gesamte Straßenliste neu
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Neue Straße gespeichert')));
+                  }
+                }
+              },
+              child: const Text('Speichern'),
+            ),
+          ],
+        ),
       ),
     );
   }

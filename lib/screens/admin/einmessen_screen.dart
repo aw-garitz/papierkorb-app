@@ -181,31 +181,41 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
       return;
     }
 
-    bool gpsErfolgreich = await _standortErmitteln();
+    // --- HIER IST DIE GEÄNDERTE LOGIK ---
+    if (!kIsWeb) {
+      // NUR AUF MOBILE: GPS zwingend abfragen
+      bool gpsErfolgreich = await _standortErmitteln();
 
-    if (!gpsErfolgreich) {
-      if (!mounted) return;
-      bool trotzdem = await showDialog<bool>(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Kein GPS'),
-              content:
-                  const Text('Trotzdem speichern und später im Büro verorten?'),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: const Text('Abbrechen')),
-                TextButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    child: const Text('Speichern')),
-              ],
-            ),
-          ) ??
-          false;
-      if (!trotzdem) return;
+      if (!gpsErfolgreich) {
+        if (!mounted) return;
+        bool trotzdem = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Kein GPS'),
+                content: const Text(
+                    'Trotzdem speichern und später im Büro verorten?'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Abbrechen')),
+                  TextButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('Speichern')),
+                ],
+              ),
+            ) ??
+            false;
+
+        if (!trotzdem) return;
+        _lat ??= 50.2007;
+        _lng ??= 10.0760;
+      }
+    } else {
+      // WEB: GPS wird ignoriert, wir setzen direkt Standardwerte
       _lat ??= 50.2007;
       _lng ??= 10.0760;
     }
+    // --- ENDE DER ÄNDERUNG ---
 
     setState(() => _laedt = true);
 
@@ -233,6 +243,9 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
     } finally {
       setState(() => _laedt = false);
     }
+    // Nach dem Speichern:
+    Navigator.pop(
+        context, true); // Das 'true' signalisiert: "Es wurde etwas hinzugefügt"
   }
 
   @override
