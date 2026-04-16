@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io' show Platform;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -53,8 +54,8 @@ class PapierkorbApp extends StatelessWidget {
           elevation: 2,
         ),
       ),
-      // Web-User landen direkt im Backoffice, Handy-User am Start
-      initialRoute: kIsWeb ? '/admin/backoffice' : '/start',
+      // Web-User und Desktop-User landen direkt im Backoffice, Handy-User am Start
+      initialRoute: (kIsWeb || Platform.isMacOS || Platform.isWindows || Platform.isLinux) ? '/admin/backoffice' : '/start',
       routes: {
         '/start': (_) => const StartScreen(),
         '/fahrer': (_) => const FahrerScreen(),

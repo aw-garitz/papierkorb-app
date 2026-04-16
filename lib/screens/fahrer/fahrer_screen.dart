@@ -68,62 +68,52 @@ class _FahrerScreenState extends State<FahrerScreen>
     });
   }
 
+  Future<void> _ladeDaten({bool mitVollbildLaden = false}) async {
+    if (mitVollbildLaden) setState(() => _laedt = true);
+    try {
+      final liste = await _service.alleAktiven();
+      if (mounted) {
+        setState(() {
+          _alle = liste;
+          _laedt = false;
+        });
+        // Wendet Suche und Geleert-Filter auf die neuen Daten an
+        _filtern();
+        // Aktualisiert die Marker auf der Karte
+        _karteKey.currentState?.aktualisiereMarker(liste, _aktuellePosition);
+      }
+    } catch (e) {
+      debugPrint("Fehler beim Laden: $e");
+      if (mounted) setState(() => _laedt = false);
+    }
+  }
+
   Future<void> _initialisiereDaten() async {
     setState(() => _laedt = true);
     try {
+      // GPS beim Start einmalig abfragen für die Kartenausrichtung
       Position pos = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high);
-
-      final liste = await _service.alleAktiven();
-      // Sortieren: 1. nach Stadtteil, 2. nach Straßennamen (wie Backoffice)
-      liste.sort((a, b) {
-        // Stadtteil vergleichen (null kommt am Ende)
-        final stadtteilA = a.stadtteil?.toLowerCase() ?? '';
-        final stadtteilB = b.stadtteil?.toLowerCase() ?? '';
-        final stadtteilCompare = stadtteilA.compareTo(stadtteilB);
-        if (stadtteilCompare != 0) return stadtteilCompare;
-
-        // Bei gleichem Stadtteil nach Straße sortieren
-        final strasseA = a.adresse.toLowerCase();
-        final strasseB = b.adresse.toLowerCase();
-        return strasseA.compareTo(strasseB);
-      });
-
       if (mounted) {
         setState(() {
           _aktuellePosition = pos;
-          _alle = liste;
-          _gefiltert = liste; // Wichtig: Gefilterte Liste setzen!
-          _laedt = false;
         });
-        // Karte aktualisieren
-        _karteKey.currentState?.aktualisiereMarker(liste, pos);
       }
     } catch (e) {
-      debugPrint("Initialisierungsfehler: $e");
-      final liste = await _service.alleAktiven();
-      // Sortieren: 1. nach Stadtteil, 2. nach Straßennamen (wie Backoffice)
-      liste.sort((a, b) {
-        // Stadtteil vergleichen (null kommt am Ende)
-        final stadtteilA = a.stadtteil?.toLowerCase() ?? '';
-        final stadtteilB = b.stadtteil?.toLowerCase() ?? '';
-        final stadtteilCompare = stadtteilA.compareTo(stadtteilB);
-        if (stadtteilCompare != 0) return stadtteilCompare;
+      debugPrint("GPS Initialisierungsfehler: $e");
+    }
+    await _ladeDaten();
+  }
 
-        // Bei gleichem Stadtteil nach Straße sortieren
-        final strasseA = a.adresse.toLowerCase();
-        final strasseB = b.adresse.toLowerCase();
-        return strasseA.compareTo(strasseB);
-      });
-      if (mounted) {
-        setState(() {
-          _alle = liste;
-          _gefiltert = liste; // Wichtig: Gefilterte Liste setzen!
-          _laedt = false;
-        });
-        // Karte aktualisieren (ohne GPS-Position)
-        _karteKey.currentState?.aktualisiereMarker(liste, null);
-      }
+  Future<void> _oeffneDetails(Papierkorb pk) async {
+    final res = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => DetailScreen(papierkorb: pk)),
+    );
+
+    if (res == true) {
+      // Nach erfolgreichem Speichern Daten sofort im Hintergrund neu laden
+      await _ladeDaten();
     }
   }
 
@@ -217,13 +207,7 @@ class _FahrerScreenState extends State<FahrerScreen>
                   key: _karteKey,
                   initialeListe: _alle,
                   aktuellePosition: _aktuellePosition,
-                  onMarkerTap: (pk) async {
-                    final res = await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => DetailScreen(papierkorb: pk)));
-                    if (res == true) _initialisiereDaten();
-                  },
+                  onMarkerTap: _oeffneDetails,
                   heuteGeleertChecker: _istHeuteGeleert,
                 ),
               ],
@@ -312,8 +296,12 @@ class _FahrerScreenState extends State<FahrerScreen>
                   trailing: erledigt
                       ? const Icon(Icons.check_circle,
                           color: Colors.green, size: 30)
-                      : const Icon(Icons.arrow_forward_ios, size: 16),
-                  onTap: () => _geheZuPapierkorbAufKarte(pk),
+                      : IconButton(
+                          icon: const Icon(Icons.map_outlined),
+                          onPressed: () => _geheZuPapierkorbAufKarte(pk),
+                          tooltip: 'Auf Karte zeigen',
+                        ),
+                  onTap: () => _oeffneDetails(pk),
                 ),
               );
             },

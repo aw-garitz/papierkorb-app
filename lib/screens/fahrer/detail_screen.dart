@@ -75,14 +75,15 @@ class _DetailScreenState extends State<DetailScreen> {
         setState(() => _speichert = false);
         _bemerkungCtrl.clear();
         setState(() => _foto = null);
-        // Historie neu laden nach erfolgreicher Leerung
-        _ladeLetzteLeerungen();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Leerung erfolgreich bestätigt!'),
             backgroundColor: Colors.green,
           ),
         );
+
+        // Zurück zur Liste signalisieren, dass eine Änderung stattgefunden hat
+        Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {
