@@ -161,6 +161,23 @@ class PapierkorbService {
     return List<Map<String, dynamic>>.from(response);
   }
 
+  /// Ruft die Anzahl der Meldungen ab, die eine Bemerkung oder ein Foto haben
+  /// und noch nicht als erledigt markiert wurden.
+  Future<int> getAnzahlOffenerMeldungen() async {
+    try {
+      final response = await supabase
+          .schema('waste')
+          .from('meldungen_view')
+          .select('id')
+          .eq('meldung_erledigt', false);
+      
+      return (response as List).length;
+    } catch (e) {
+      
+      return 0; // Im Fehlerfall 0 zurückgeben, damit die App nicht abstürzt
+    }
+  }
+
   Future<void> meldungErledigen({
     required String typ,
     required String id,
@@ -175,7 +192,7 @@ class PapierkorbService {
     await supabase
         .schema('waste')
         .from('papierkörbe')
-        .update({'status': 'aktiv'}).eq('id', papierkorbId);
+        .update({'status': 'ok'}).eq('id', papierkorbId);
   }
 
   // ----------------------------------------------------------

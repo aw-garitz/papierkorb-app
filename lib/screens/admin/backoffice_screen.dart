@@ -27,6 +27,7 @@ class _BackofficeScreenState extends State<BackofficeScreen>
   List<Papierkorb> _gefiltert = [];
   bool _laedt = true;
   String _filterStatus = 'alle';
+  int _anzahlOffenerMeldungen = 0; // Neue State-Variable für die Badge-Anzeige
 
   @override
   void initState() {
@@ -48,7 +49,17 @@ class _BackofficeScreenState extends State<BackofficeScreen>
     if (!mounted) return;
     setState(() => _laedt = true);
     try {
+      // Hauptdaten laden (Papierkörbe)
       final liste = await _service.alleAktiven();
+      
+      // Badge-Anzahl isoliert laden, damit ein Fehler hier nicht die Hauptliste blockiert
+      int count = 0;
+      try {
+        count = await _service.getAnzahlOffenerMeldungen();
+      } catch (e) {
+        debugPrint("Hinweis: Badge-Anzahl konnte nicht geladen werden (evtl. DB-View unvollständig): $e");
+      }
+
       liste.sort((a, b) {
         final stadtteilA = a.stadtteil?.toLowerCase() ?? '';
         final stadtteilB = b.stadtteil?.toLowerCase() ?? '';
@@ -59,10 +70,11 @@ class _BackofficeScreenState extends State<BackofficeScreen>
       if (mounted) {
         setState(() {
           _alle = liste;
-          _gefiltert = liste;
+          _anzahlOffenerMeldungen = count;
           _laedt = false;
         });
-        _karteKey.currentState?.aktualisiereMarker(liste);
+        _filtern(); // Wendet Suche/Filter an und befüllt _gefiltert
+        _karteKey.currentState?.aktualisiereMarker(_gefiltert);
       }
     } catch (e) {
       if (mounted) setState(() => _laedt = false);
@@ -314,10 +326,17 @@ class _BackofficeScreenState extends State<BackofficeScreen>
         ],
         bottom: TabBar(
           controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.list), text: 'Liste'),
-            Tab(icon: Icon(Icons.layers), text: 'Karte'),
-            Tab(icon: Icon(Icons.warning_amber), text: 'Meldungen'),
+          tabs: [
+            const Tab(icon: Icon(Icons.list), text: 'Liste'),
+            const Tab(icon: Icon(Icons.layers), text: 'Karte'),
+            Tab(
+              icon: Badge(
+                isLabelVisible: _anzahlOffenerMeldungen > 0, // Nur anzeigen, wenn > 0
+                label: Text('$_anzahlOffenerMeldungen'),
+                child: const Icon(Icons.warning_amber),
+              ),
+              text: 'Meldungen',
+            ),
           ],
         ),
       ),
@@ -339,7 +358,14 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                   },
                   heuteGeleertChecker: _istHeuteGeleert,
                 ),
-                const MeldungenScreen(),
+                MeldungenScreen(
+                  onMeldungErledigt: () {
+                    // Callback vom MeldungenScreen, um die Badge-Anzahl zu aktualisieren
+                    _service.getAnzahlOffenerMeldungen().then((count) {
+                      if (mounted) setState(() => _anzahlOffenerMeldungen = count);
+                    }).catchError((e) => debugPrint("Fehler beim Badge-Update: $e"));
+                  },
+                ),
               ],
             ),
       floatingActionButton: _tabController.index == 0
