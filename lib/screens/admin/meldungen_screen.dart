@@ -13,10 +13,10 @@ class MeldungenScreen extends StatefulWidget {
 
 class _MeldungenScreenState extends State<MeldungenScreen> {
   final _service = PapierkorbService();
-  List<Map<String, dynamic>> _meldungen = [];
+  List<Map<String, dynamic>> _offene = [];
+  List<Map<String, dynamic>> _historie = [];
   bool _laedt = true;
   String? _fehler;
-  final Set<String> _erledigt = {};
 
   @override
   void initState() {
@@ -33,21 +33,22 @@ class _MeldungenScreenState extends State<MeldungenScreen> {
     try {
       final alle = await _service.meldungen();
       if (mounted) {
-        final gefiltert = alle.where((m) {
+        final alleMeldungen = alle.where((m) {
           final hatBemerkung = m['bemerkung'] != null && m['bemerkung'].toString().trim().isNotEmpty;
           final hatFoto = m['foto_url'] != null && m['foto_url'].toString().trim().isNotEmpty;
           return hatBemerkung || hatFoto;
         }).toList();
 
         // Sortierung: Neueste Meldungen zuerst
-        gefiltert.sort((a, b) {
+        alleMeldungen.sort((a, b) {
           final dateA = DateTime.tryParse(a['geleert_am']?.toString() ?? '') ?? DateTime(0);
           final dateB = DateTime.tryParse(b['geleert_am']?.toString() ?? '') ?? DateTime(0);
           return dateB.compareTo(dateA);
         });
 
         setState(() {
-          _meldungen = gefiltert;
+          _offene = alleMeldungen.where((m) => m['meldung_erledigt'] == false).toList();
+          _historie = alleMeldungen.where((m) => m['meldung_erledigt'] == true).toList();
           _laedt = false;
         });
       }
@@ -61,26 +62,13 @@ class _MeldungenScreenState extends State<MeldungenScreen> {
     }
   }
 
-  Future<void> _erledigen(Map<String, dynamic> meldung) async {
-    final id = meldung['id'].toString();
-    final typ = meldung['typ'] as String;
-    final papierkorbId = meldung['papierkorb_id'].toString();
-
-    setState(() => _erledigt.add(id));
-    try {
-      await _service.meldungErledigen(
-        typ: typ,
-        id: id,
-        papierkorbId: papierkorbId,
-      );
-      _laden();
-      widget.onMeldungErledigt?.call();
-    } catch (e) {
-      if (mounted) {
-        setState(() => _erledigt.remove(id));
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Fehler: $e')));
+  void _oeffneMeldungDetail(Map<String, dynamic> meldung) {
+    Navigator.pushNamed(context, '/admin/meldung-detail', arguments: meldung).then((value) {
+      if (value == true) {
+        _laden();
+        widget.onMeldungErledigt?.call();
       }
-    }
+    });
   }
 
   void _oeffneDetail(Map<String, dynamic> meldung) async {
@@ -119,98 +107,119 @@ class _MeldungenScreenState extends State<MeldungenScreen> {
 
     return RefreshIndicator(
       onRefresh: _laden,
-      child: _meldungen.isEmpty
+      child: (_offene.isEmpty && _historie.isEmpty)
           ? const Center(child: Text("Keine Meldungen vorhanden."))
-          : ListView.builder(
+          : ListView(
               padding: const EdgeInsets.all(12),
-              itemCount: _meldungen.length,
-              itemBuilder: (context, i) {
-                final m = _meldungen[i];
-                final id = m['id'].toString();
-                final status = m['status'] as String;
-                final nummer = m['nummer']?.toString() ?? '???';
-                final strasse = m['strasse'] as String? ?? 'Unbekannte Straße';
-                final bemerkung = m['bemerkung'] as String?;
-                final fotoUrl = m['foto_url'] as String?;
-                final datumRaw = m['geleert_am']?.toString();
-                final datum = datumRaw != null 
-                    ? DateFormat('dd.MM. HH:mm').format(DateTime.parse(datumRaw).toLocal())
-                    : '';
-                final wirdErledigt = _erledigt.contains(id);
+              children: [
+                if (_offene.isNotEmpty) ...[
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+                    child: Text("Offene Meldungen", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.orange)),
+                  ),
+                  ..._offene.map((m) => _buildMeldungCard(m, istHistorie: false)),
+                ],
+                if (_historie.isNotEmpty) ...[
+                  const Padding(
+                    padding: EdgeInsets.only(top: 24.0, bottom: 8.0, left: 4.0),
+                    child: Text("Historie Meldungen", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)),
+                  ),
+                  ..._historie.map((m) => _buildMeldungCard(m, istHistorie: true)),
+                ],
+              ],
+            ),
+    );
+  }
 
-                Color farbe = status == 'defekt' ? Colors.orange : (status == 'entfernt' ? Colors.red : Colors.blue);
+  Widget _buildMeldungCard(Map<String, dynamic> m, {required bool istHistorie}) {
+    final status = m['status'] as String;
+    final nummer = m['nummer']?.toString() ?? '???';
+    final strasse = m['strasse'] as String? ?? 'Unbekannte Straße';
+    final bemerkung = m['bemerkung'] as String?;
+    final meldungBemerkung = m['meldung_bemerkung'] as String?;
+    final fotoUrl = m['foto_url'] as String?;
+    final datumRaw = m['geleert_am']?.toString();
+    final datum = datumRaw != null ? DateFormat('dd.MM. HH:mm').format(DateTime.parse(datumRaw).toLocal()) : '';
 
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  elevation: 2,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
+    Color farbe = istHistorie ? Colors.grey : (status == 'defekt' ? Colors.orange : (status == 'entfernt' ? Colors.red : Colors.blue));
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: istHistorie ? 1 : 2,
+      color: istHistorie ? Colors.grey.shade50 : null,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Linker Bereich: Avatar und Texte
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CircleAvatar(
+                    backgroundColor: farbe.withOpacity(0.15),
+                    child: Text(nummer, style: TextStyle(color: farbe.withOpacity(0.9), fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
-                            Expanded(
-                              flex: 3,
-                              child: Row(
-                                children: [
-                                  CircleAvatar(backgroundColor: farbe.withOpacity(0.15), child: Text(nummer, style: TextStyle(color: farbe.withOpacity(0.9), fontWeight: FontWeight.bold))),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Text(strasse, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                            Text(datum, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-                                          ],
-                                        ),
-                                        if (bemerkung != null && bemerkung.isNotEmpty)
-                                          Padding(padding: const EdgeInsets.only(top: 4), child: Text(bemerkung, style: TextStyle(color: Colors.grey.shade700, fontSize: 13, fontStyle: FontStyle.italic))),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Expanded(
-                              flex: 1,
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  IconButton(onPressed: () => _oeffneDetail(m), icon: const Icon(Icons.edit_note), tooltip: 'Details bearbeiten'),
-                                  IconButton(onPressed: wirdErledigt ? null : () => _erledigen(m), icon: Icon(wirdErledigt ? Icons.hourglass_empty : Icons.check_circle_outline, color: Colors.green)),
-                                ],
-                              ),
-                            ),
+                            Text(strasse, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                            const SizedBox(width: 8),
+                            Text(datum, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
                           ],
                         ),
-                        if (fotoUrl != null && fotoUrl.isNotEmpty)
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: Padding(
-                              padding: const EdgeInsets.only(top: 12),
-                              child: GestureDetector(
-                                onTap: () => _zeigeVollbild(fotoUrl),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: CachedNetworkImage(
-                                    imageUrl: fotoUrl,
-                                    height: 120, // Kleine Höhe
-                                    width: 90,   // Kleine Breite für Hochformat
-                                    fit: BoxFit.cover,
-                                  ),
-                                ),
-                              ),
+                        if (bemerkung != null && bemerkung.isNotEmpty)
+                          Padding(padding: const EdgeInsets.only(top: 4), child: Text(bemerkung, style: TextStyle(color: Colors.grey.shade700, fontSize: 13, fontStyle: FontStyle.italic))),
+                        if (istHistorie && meldungBemerkung != null && meldungBemerkung.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.info_outline, size: 14, color: Colors.green),
+                                const SizedBox(width: 4),
+                                Expanded(child: Text(meldungBemerkung, style: const TextStyle(color: Colors.green, fontSize: 13, fontWeight: FontWeight.w500))),
+                              ],
                             ),
                           ),
                       ],
                     ),
                   ),
-                );
-              },
+                ],
+              ),
             ),
+            // Mittlerer Bereich: Buttons
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!istHistorie) ...[
+                  IconButton(onPressed: () => _oeffneDetail(m), icon: const Icon(Icons.edit_note), tooltip: 'Stammdaten editieren'),
+                  IconButton(onPressed: () => _oeffneMeldungDetail(m), icon: const Icon(Icons.check_circle_outline, color: Colors.green), tooltip: 'Meldung bearbeiten & abschließen'),
+                ],
+                if (istHistorie) const Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Icon(Icons.check_circle, color: Colors.green, size: 20)),
+              ],
+            ),
+            // Rechter Bereich: Foto (falls vorhanden)
+            if (fotoUrl != null && fotoUrl.isNotEmpty)
+              GestureDetector(
+                onTap: () => _zeigeVollbild(fotoUrl),
+                child: Container(
+                  margin: const EdgeInsets.only(left: 12),
+                  width: 60,
+                  height: 60,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: CachedNetworkImage(imageUrl: fotoUrl, fit: BoxFit.cover, color: istHistorie ? Colors.white.withOpacity(0.7) : null, colorBlendMode: istHistorie ? BlendMode.dstATop : null),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -277,6 +277,44 @@ class _BackofficeScreenState extends State<BackofficeScreen>
     }
   }
 
+  Future<void> _starteBildOptimierung() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Bilder optimieren'),
+        content: const Text('Alle bestehenden Bilder werden heruntergeladen, komprimiert und neu hochgeladen. Dies kann bei vielen Bildern einige Zeit dauern und sollte nur bei einer stabilen Verbindung durchgeführt werden.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Abbrechen')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Starten')),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // Progress-Dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(children: [CircularProgressIndicator(), SizedBox(width: 20), Text('Optimiere Bilder...')]),
+      ),
+    );
+
+    try {
+      final anzahl = await _service.optimiereBestehendeBilder();
+      if (mounted) {
+        Navigator.pop(context); // Dialog schließen
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$anzahl Bilder erfolgreich optimiert!'), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Fehler bei der Optimierung: $e'), backgroundColor: Colors.red));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -293,6 +331,8 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                 _exportiereLeerungen();
               } else if (value == 'alles') {
                 _exportiereAlles();
+              } else if (value == 'optimierung') {
+                _starteBildOptimierung();
               }
             },
             itemBuilder: (context) => [
@@ -318,6 +358,15 @@ class _BackofficeScreenState extends State<BackofficeScreen>
                   Icon(Icons.table_chart, size: 20),
                   SizedBox(width: 8),
                   Text('Nur Leerungen'),
+                ]),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'optimierung',
+                child: Row(children: [
+                  Icon(Icons.compress, size: 20, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Text('Bilder optimieren', style: TextStyle(color: Colors.orange)),
                 ]),
               ),
             ],

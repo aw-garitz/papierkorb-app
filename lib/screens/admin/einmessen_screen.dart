@@ -122,6 +122,8 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
     final bild = await picker.pickImage(
       source: kIsWeb ? ImageSource.gallery : ImageSource.camera,
       imageQuality: 55,
+      maxWidth: 1024,
+      maxHeight: 1024,
     );
     if (bild != null) {
       final bytes = await bild.readAsBytes();

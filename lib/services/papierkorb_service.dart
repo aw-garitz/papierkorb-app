@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../main.dart';
 import '../models/papierkorb.dart';
@@ -127,10 +129,12 @@ class PapierkorbService {
     final String dateiName =
         "${papierkorbId}_${DateTime.now().millisecondsSinceEpoch}.jpg";
 
-    if (fotoBytes != null) {
-      fotoUrl = await _uploadBytes(fotoBytes, 'leerungen/$dateiName');
-    } else if (foto != null) {
-      fotoUrl = await _uploadFile(foto, 'leerungen/$dateiName');
+    if (fotoBytes != null || foto != null) {
+      fotoUrl = await _komprimierenUndHochladen(
+        pfad: 'leerungen/$dateiName',
+        foto: foto,
+        fotoBytes: fotoBytes,
+      );
     }
 
     await supabase.schema('waste').from('leerungen').insert({
@@ -182,12 +186,16 @@ class PapierkorbService {
     required String typ,
     required String id,
     required String papierkorbId,
+    String? bemerkung,
   }) async {
     if (typ == 'leerung') {
       await supabase
           .schema('waste')
           .from('leerungen')
-          .update({'meldung_erledigt': true}).eq('id', id);
+          .update({
+            'meldung_erledigt': true,
+            'meldung_bemerkung': bemerkung,
+          }).eq('id', id);
     }
     await supabase
         .schema('waste')
@@ -222,10 +230,12 @@ class PapierkorbService {
   }) async {
     String? fotoUrl;
     // Wir nutzen die Nummer für den ersten Foto-Upload-Pfad
-    if (fotoBytes != null) {
-      fotoUrl = await _uploadBytes(fotoBytes, 'papierkoerbe/pk_$nummer.jpg');
-    } else if (foto != null) {
-      fotoUrl = await fotoHochladen(foto, "pk_$nummer");
+    if (fotoBytes != null || foto != null) {
+      fotoUrl = await _komprimierenUndHochladen(
+        pfad: 'papierkoerbe/pk_$nummer.jpg',
+        foto: foto,
+        fotoBytes: fotoBytes,
+      );
     }
 
     final insertRes = await supabase
@@ -263,10 +273,12 @@ class PapierkorbService {
     Uint8List? neuesFotoBytes,
   }) async {
     String? fotoUrl;
-    if (neuesFotoBytes != null) {
-      fotoUrl = await _uploadBytes(neuesFotoBytes, 'papierkoerbe/pk_$id.jpg');
-    } else if (neuesFoto != null) {
-      fotoUrl = await fotoHochladen(neuesFoto, "pk_$id");
+    if (neuesFotoBytes != null || neuesFoto != null) {
+      fotoUrl = await _komprimierenUndHochladen(
+        pfad: 'papierkoerbe/pk_$id.jpg',
+        foto: neuesFoto,
+        fotoBytes: neuesFotoBytes,
+      );
     }
 
     final updates = <String, dynamic>{
@@ -301,40 +313,115 @@ class PapierkorbService {
     await supabase.schema('waste').from('papierkörbe').delete().eq('id', id);
   }
 
+  /// Läuft einmalig über alle bestehenden Einträge, lädt die Bilder, 
+  /// komprimiert sie und überschreibt die Originale im Storage.
+  Future<int> optimiereBestehendeBilder() async {
+    int anzahl = 0;
+
+    // 1. Alle Einträge mit Fotos holen (Leerungen)
+    final leerungen = await supabase.schema('waste')
+        .from('leerungen')
+        .select('id, foto_url')
+        .not('foto_url', 'is', null);
+
+    for (final l in leerungen as List) {
+      final url = l['foto_url'] as String;
+      if (url.isEmpty || !url.contains('papierkorb-fotos/')) continue;
+
+      try {
+        // Bild herunterladen
+        final response = await http.get(Uri.parse(url));
+        if (response.statusCode == 200) {
+          final bytes = response.bodyBytes;
+          
+          // Pfad aus der URL extrahieren (alles nach 'papierkorb-fotos/')
+          final pfad = url.split('papierkorb-fotos/').last.split('?').first;
+
+          // Mit der bereits existierenden Methode neu hochladen (überschreibt dank upsert: true)
+          await _komprimierenUndHochladen(
+            pfad: pfad,
+            fotoBytes: bytes,
+          );
+          anzahl++;
+        }
+      } catch (e) {
+        debugPrint("Fehler bei Optimierung von Leerung ${l['id']}: $e");
+      }
+    }
+
+    // 2. Das Gleiche für die Stammdaten der Papierkörbe
+    final pks = await supabase.schema('waste')
+        .from('papierkörbe')
+        .select('id, foto_url')
+        .not('foto_url', 'is', null);
+
+    for (final pk in pks as List) {
+      final url = pk['foto_url'] as String;
+      if (url.isEmpty || !url.contains('papierkorb-fotos/')) continue;
+
+      try {
+        final response = await http.get(Uri.parse(url));
+        if (response.statusCode == 200) {
+          final bytes = response.bodyBytes;
+          final pfad = url.split('papierkorb-fotos/').last.split('?').first;
+          await _komprimierenUndHochladen(
+            pfad: pfad,
+            fotoBytes: bytes,
+          );
+          anzahl++;
+        }
+      } catch (e) {
+        debugPrint("Fehler bei Optimierung von Papierkorb ${pk['id']}: $e");
+      }
+    }
+
+    return anzahl;
+  }
+
   // ----------------------------------------------------------
   // HILFSMETHODEN
   // ----------------------------------------------------------
 
-  Future<String> fotoHochladen(File foto, String name) async {
-    final komprimiert = await FlutterImageCompress.compressWithFile(
-      foto.absolute.path,
-      quality: 55,
-      minWidth: 800,
-      minHeight: 800,
-    );
-    if (komprimiert == null) throw Exception('Komprimierung fehlgeschlagen');
-    return _uploadBytes(komprimiert, 'papierkoerbe/$name.jpg');
-  }
+  /// Hilfsmethode zur Komprimierung und zum Upload.
+  /// Skaliert Bilder auf max 1024px und reduziert die Qualität auf ca. 50%.
+  Future<String> _komprimierenUndHochladen({
+    required String pfad,
+    File? foto,
+    Uint8List? fotoBytes,
+  }) async {
+    Uint8List data;
 
-  Future<String> _uploadBytes(Uint8List bytes, String pfad) async {
+    if (kIsWeb) {
+      // Auf Web funktioniert flutter_image_compress nicht,
+      // daher laden wir die Rohdaten (ImagePicker übernimmt hier die Skalierung).
+      data = fotoBytes ?? await foto!.readAsBytes();
+    } else {
+      // Mobile Komprimierung
+      final result = foto != null
+          ? await FlutterImageCompress.compressWithFile(
+              foto.absolute.path,
+              quality: 50,
+              minWidth: 1024,
+              minHeight: 1024,
+            )
+          : await FlutterImageCompress.compressWithList(
+              fotoBytes!,
+              quality: 50,
+              minWidth: 1024,
+              minHeight: 1024,
+            );
+
+      if (result == null) throw Exception('Komprimierung fehlgeschlagen');
+      data = result;
+    }
+
     await supabase.storage.from('papierkorb-fotos').uploadBinary(
           pfad,
-          bytes,
+          data,
           fileOptions:
               const FileOptions(contentType: 'image/jpeg', upsert: true),
         );
     return supabase.storage.from('papierkorb-fotos').getPublicUrl(pfad);
-  }
-
-  Future<String> _uploadFile(File foto, String pfad) async {
-    final komprimiert = await FlutterImageCompress.compressWithFile(
-      foto.absolute.path,
-      quality: 55,
-      minWidth: 800,
-      minHeight: 800,
-    );
-    if (komprimiert == null) throw Exception('Komprimierung fehlgeschlagen');
-    return _uploadBytes(komprimiert, pfad);
   }
 
   Future<List<Map<String, dynamic>>> strassen() async {

@@ -11,6 +11,7 @@ import 'screens/fahrer/detail_screen.dart';
 import 'screens/admin/einmessen_screen.dart';
 import 'screens/admin/backoffice_screen.dart';
 import 'screens/admin/edit_screen.dart';
+import 'screens/admin/meldung_detail_screen.dart';
 import 'models/papierkorb.dart';
 
 Future<void> main() async {
@@ -79,6 +80,16 @@ class PapierkorbApp extends StatelessWidget {
           if (args is Papierkorb) {
             return MaterialPageRoute(
               builder: (_) => EditScreen(papierkorb: args),
+            );
+          }
+        }
+
+        // Dynamische Route für den MeldungDetailScreen
+        if (settings.name == '/admin/meldung-detail') {
+          final args = settings.arguments;
+          if (args is Map<String, dynamic>) {
+            return MaterialPageRoute(
+              builder: (_) => MeldungDetailScreen(meldung: args),
             );
           }
         }
