@@ -4,7 +4,6 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:papierkorb_app/main.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/papierkorb.dart';
 import '../../models/leerung.dart';
@@ -693,7 +692,7 @@ class _EditScreenState extends State<EditScreen> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: _bauartId,
+              initialValue: _bauartId,
               decoration: const InputDecoration(
                   labelText: 'Bauart', border: OutlineInputBorder()),
               items: [
@@ -715,7 +714,7 @@ class _EditScreenState extends State<EditScreen> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: _status,
+              initialValue: _status,
               decoration: const InputDecoration(
                   labelText: 'Status', border: OutlineInputBorder()),
               items: const [
@@ -869,7 +868,7 @@ class _EditScreenState extends State<EditScreen> {
     showDialog(
       context: context,
       builder: (context) => Dialog(
-        child: Container(
+        child: SizedBox(
           width: MediaQuery.of(context).size.width * 0.9,
           height: MediaQuery.of(context).size.height * 0.9,
           child: Stack(
@@ -980,7 +979,7 @@ class _EditScreenState extends State<EditScreen> {
               ),
               const SizedBox(height: 15),
               DropdownButtonFormField<String>(
-                value: gewaehlterStadtteil,
+                initialValue: gewaehlterStadtteil,
                 decoration: const InputDecoration(
                     labelText: 'Stadtteil', border: OutlineInputBorder()),
                 items: stadtteile

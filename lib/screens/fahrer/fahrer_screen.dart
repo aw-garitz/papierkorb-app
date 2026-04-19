@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/papierkorb.dart';
+import '../../main.dart';
 import '../../services/papierkorb_service.dart';
 import '../../utils/gps_utils.dart';
 import 'detail_screen.dart';
@@ -28,12 +30,17 @@ class _FahrerScreenState extends State<FahrerScreen>
   String _geleertFilter = 'alle'; // 'alle', 'geleert', 'nicht_geleert'
 
   final _karteKey = GlobalKey<_KarteTabState>();
-  Timer? _gpsTimer;
+  StreamSubscription<Position>? _positionStream;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    // Wenn der User nur Fahrer ist, starten wir direkt auf der Karte (Index 1)
+    // Admins, die über den StartScreen kommen, könnten wir optional anders behandeln,
+    // aber für den "Fahrer-Zweig" ist die Karte als Standard meist gewünscht.
+    // Auch hier auf den spezifischen Key 'waste_role' prüfen
+    final isAdmin = supabase.auth.currentUser?.appMetadata['waste_role'] == 'admin';
+    _tabController = TabController(length: 2, vsync: this, initialIndex: isAdmin ? 0 : 1);
     _tabController.addListener(() => setState(() {}));
     _suchCtrl.addListener(_filtern);
     _initialisiereDaten();
@@ -42,30 +49,29 @@ class _FahrerScreenState extends State<FahrerScreen>
 
   @override
   void dispose() {
-    _gpsTimer?.cancel();
+    _positionStream?.cancel();
     _tabController.dispose();
     _suchCtrl.dispose();
     super.dispose();
   }
 
   void _starteGpsUpdates() {
-    _gpsTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
-      try {
-        final position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-          timeLimit: const Duration(seconds: 2),
-        );
-
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 0, // Updates bei jeder kleinsten Bewegung
+      ),
+    ).listen(
+      (Position position) {
         if (mounted) {
           setState(() {
             _aktuellePosition = position;
           });
           _karteKey.currentState?.aktualisierePosition(position);
         }
-      } catch (e) {
-        debugPrint("GPS-Update Fehler: $e");
-      }
-    });
+      },
+      onError: (e) => debugPrint("GPS-Stream Fehler: $e"),
+    );
   }
 
   Future<void> _ladeDaten({bool mitVollbildLaden = false}) async {
@@ -91,9 +97,18 @@ class _FahrerScreenState extends State<FahrerScreen>
   Future<void> _initialisiereDaten() async {
     setState(() => _laedt = true);
     try {
+      // 1. GPS Berechtigungen aktiv anfragen
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          debugPrint("GPS-Berechtigung verweigert.");
+        }
+      }
+
       // GPS beim Start einmalig abfragen für die Kartenausrichtung
       Position pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
+          desiredAccuracy: LocationAccuracy.best);
       if (mounted) {
         setState(() {
           _aktuellePosition = pos;
@@ -184,8 +199,14 @@ class _FahrerScreenState extends State<FahrerScreen>
         title: Text('Abholer-Tour (${_gefiltert.length})'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.gps_fixed),
-            onPressed: _initialisiereDaten,
+            icon: const Icon(Icons.my_location),
+            onPressed: () => _karteKey.currentState?._zentriereAufUser(),
+            tooltip: 'Meinen Standort zentrieren',
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _ladeDaten,
+            tooltip: 'Daten aktualisieren',
           ),
         ],
         bottom: TabBar(
@@ -334,6 +355,7 @@ class _KarteTabState extends State<_KarteTab>
   final _mapController = MapController();
   List<Papierkorb> _markerListe = [];
   Position? _pos;
+  bool _hatInitialZentriert = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -343,6 +365,21 @@ class _KarteTabState extends State<_KarteTab>
     super.initState();
     _markerListe = widget.initialeListe;
     _pos = widget.aktuellePosition;
+  }
+
+  @override
+  void didUpdateWidget(_KarteTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Synchronisiere Daten, wenn der Parent (FahrerScreen) sie aktualisiert
+    if (widget.initialeListe != oldWidget.initialeListe) {
+      _markerListe = widget.initialeListe;
+    }
+    if (widget.aktuellePosition != oldWidget.aktuellePosition) {
+      _pos = widget.aktuellePosition;
+      if (!_hatInitialZentriert && _pos != null) {
+        _zentriereAufUser();
+      }
+    }
   }
 
   void aktualisiereMarker(List<Papierkorb> neueListe, Position? neuePos) {
@@ -358,7 +395,17 @@ class _KarteTabState extends State<_KarteTab>
     if (mounted) {
       setState(() {
         _pos = neuePos;
+        if (!_hatInitialZentriert) {
+          _zentriereAufUser();
+        }
       });
+    }
+  }
+
+  void _zentriereAufUser() {
+    if (_pos != null) {
+      _hatInitialZentriert = true;
+      _mapController.move(LatLng(_pos!.latitude, _pos!.longitude), 17);
     }
   }
 
@@ -396,14 +443,6 @@ class _KarteTabState extends State<_KarteTab>
         ),
         MarkerLayer(
           markers: [
-            if (_pos != null)
-              Marker(
-                point: LatLng(_pos!.latitude, _pos!.longitude),
-                width: 20,
-                height: 20,
-                child:
-                    const Icon(Icons.my_location, color: Colors.blue, size: 25),
-              ),
             ..._markerListe.map((pk) {
               final erledigt = widget.heuteGeleertChecker(pk);
               final imRadius = _pos != null &&
@@ -438,7 +477,25 @@ class _KarteTabState extends State<_KarteTab>
                   ),
                 ),
               );
-            }).toList(),
+            }),
+            // User-Standort als oberste Ebene (damit er immer sichtbar ist)
+            if (_pos != null)
+              Marker(
+                point: LatLng(_pos!.latitude, _pos!.longitude),
+                width: 25,
+                height: 25,
+                alignment: Alignment.center,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade600,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
       ],

@@ -294,7 +294,7 @@ class _EinmessenScreenState extends State<EinmessenScreen> {
                   _laedtBauarten
                       ? const LinearProgressIndicator()
                       : DropdownButtonFormField<String>(
-                          value: _bauartId,
+                          initialValue: _bauartId,
                           decoration: const InputDecoration(
                               labelText: 'Bauart',
                               border: OutlineInputBorder()),

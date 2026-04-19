@@ -148,7 +148,7 @@ class _DetailScreenState extends State<DetailScreen> {
                     // Foto (25%)
                     Expanded(
                       flex: 1,
-                      child: Container(
+                      child: SizedBox(
                         height: 120, // Hochformat mit Verhältnis 0,75
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(8),
@@ -323,7 +323,7 @@ class _DetailScreenState extends State<DetailScreen> {
                           color: Colors.white,
                         ))
                     : const Icon(Icons.save_alt, size: 28),
-                label: Text(
+                label: const Text(
                   "LEERUNG BESTÄTIGEN",
                   style: TextStyle(
                     fontSize: 18,
@@ -378,7 +378,7 @@ class _DetailScreenState extends State<DetailScreen> {
                                   ],
                                 ),
                               ))
-                          .toList(),
+                          ,
                     ],
                   ),
                 ),
@@ -401,7 +401,7 @@ class _DetailScreenState extends State<DetailScreen> {
     showDialog(
       context: context,
       builder: (context) => Dialog(
-        child: Container(
+        child: SizedBox(
           width: MediaQuery.of(context).size.width * 0.95,
           height: MediaQuery.of(context).size.height * 0.95,
           child: Stack(

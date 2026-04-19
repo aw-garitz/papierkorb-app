@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class StartScreen extends StatelessWidget {
   const StartScreen({super.key});
@@ -6,6 +7,17 @@ class StartScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.grey),
+            onPressed: () => Supabase.instance.client.auth.signOut(),
+            tooltip: 'Abmelden',
+          )
+        ],
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -41,8 +53,7 @@ class StartScreen extends StatelessWidget {
               SizedBox(
                 height: 64,
                 child: ElevatedButton.icon(
-                  onPressed: () =>
-                      Navigator.pushReplacementNamed(context, '/fahrer'),
+                  onPressed: () => Navigator.pushNamed(context, '/fahrer'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green.shade700,
                     foregroundColor: Colors.white,
@@ -50,7 +61,7 @@ class StartScreen extends StatelessWidget {
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
-                  icon: const Icon(Icons.qr_code_scanner, size: 28),
+                  icon: const Icon(Icons.delete_outline, size: 28),
                   label: const Text(
                     'Abholer',
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
@@ -64,8 +75,7 @@ class StartScreen extends StatelessWidget {
               SizedBox(
                 height: 64,
                 child: OutlinedButton.icon(
-                  onPressed: () => Navigator.pushReplacementNamed(
-                      context, '/admin/einmessen'),
+                  onPressed: () => Navigator.pushNamed(context, '/admin/einmessen'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.green.shade700,
                     side: BorderSide(color: Colors.green.shade300, width: 2),

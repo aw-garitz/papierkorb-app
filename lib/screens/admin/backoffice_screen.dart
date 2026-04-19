@@ -226,15 +226,17 @@ class _BackofficeScreenState extends State<BackofficeScreen>
       _fuellePapierkoerbeSheet(excel['Papierkörbe']);
       excel.save(fileName: 'Papierkörbe_Excel_P.xlsx');
 
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Papierkörbe Excel heruntergeladen')),
         );
+      }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Fehler beim Export: $e')),
         );
+      }
     }
   }
 
@@ -245,15 +247,17 @@ class _BackofficeScreenState extends State<BackofficeScreen>
       await _fuelleLeerungenSheet(excel['Leerungen']);
       excel.save(fileName: 'Papierkörbe_Excel_L.xlsx');
 
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Leerungen Excel heruntergeladen')),
         );
+      }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Fehler beim Leerungen-Export: $e')),
         );
+      }
     }
   }
 
@@ -265,15 +269,17 @@ class _BackofficeScreenState extends State<BackofficeScreen>
       await _fuelleLeerungenSheet(excel['Leerungen']);
       excel.save(fileName: 'Papierkörbe_Excel.xlsx');
 
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Backoffice Excel heruntergeladen')),
         );
+      }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Fehler beim Export: $e')),
         );
+      }
     }
   }
 

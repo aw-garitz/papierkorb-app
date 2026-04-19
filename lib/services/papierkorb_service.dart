@@ -252,7 +252,7 @@ class PapierkorbService {
           'status': 'ok', // Einzig gültiger Status für neue Papierkörbe
           'foto_url': fotoUrl,
           'qr_code':
-              'PK-${nummer}-${DateTime.now().millisecondsSinceEpoch}', // Eindeutiger QR-Code
+              'PK-$nummer-${DateTime.now().millisecondsSinceEpoch}', // Eindeutiger QR-Code
         })
         .select()
         .single();

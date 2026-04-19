@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'screens/start_screen.dart';
+import 'screens/login_screen.dart';
 import 'screens/fahrer/fahrer_screen.dart';
 import 'screens/fahrer/detail_screen.dart';
 import 'screens/admin/einmessen_screen.dart';
@@ -55,8 +56,37 @@ class PapierkorbApp extends StatelessWidget {
           elevation: 2,
         ),
       ),
-      // Web-User und Desktop-User landen direkt im Backoffice, Handy-User am Start
-      initialRoute: (kIsWeb || Platform.isMacOS || Platform.isWindows || Platform.isLinux) ? '/admin/backoffice' : '/start',
+      home: StreamBuilder<AuthState>(
+        stream: supabase.auth.onAuthStateChange,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          }
+
+          final session = snapshot.data?.session;
+          if (session == null) {
+            return const LoginScreen();
+          }
+
+          // Wir nutzen 'waste_role', um Konflikte mit anderen Apps in derselben DB zu vermeiden
+          final userRole = session.user.appMetadata['waste_role'] ?? 'fahrer';
+          final isWeb = kIsWeb || Platform.isMacOS || Platform.isWindows || Platform.isLinux;
+
+          if (isWeb) {
+            if (userRole == 'admin') {
+              return const BackofficeScreen();
+            } else {
+              return const WebAccessDeniedScreen();
+            }
+          } else {
+            if (userRole == 'admin') {
+              return const StartScreen();
+            } else {
+              return const FahrerScreen();
+            }
+          }
+        },
+      ),
       routes: {
         '/start': (_) => const StartScreen(),
         '/fahrer': (_) => const FahrerScreen(),
@@ -96,6 +126,30 @@ class PapierkorbApp extends StatelessWidget {
 
         return null;
       },
+    );
+  }
+}
+
+class WebAccessDeniedScreen extends StatelessWidget {
+  const WebAccessDeniedScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.desktop_access_disabled, size: 64, color: Colors.red),
+            const SizedBox(height: 16),
+            const Text('Kein Zugriff', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text('Die Web-Anwendung ist nur für Admins reserviert.'),
+            const SizedBox(height: 24),
+            TextButton(onPressed: () => supabase.auth.signOut(), child: const Text('Abmelden'))
+          ],
+        ),
+      ),
     );
   }
 }
