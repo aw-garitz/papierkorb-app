@@ -443,6 +443,24 @@ class _KarteTabState extends State<_KarteTab>
         ),
         MarkerLayer(
           markers: [
+            // User-Standort zuerst (unterste Ebene), damit er PK-Marker nicht verdeckt/blockiert
+            if (_pos != null)
+              Marker(
+                point: LatLng(_pos!.latitude, _pos!.longitude),
+                width: 25,
+                height: 25,
+                alignment: Alignment.center,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade600,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))
+                    ],
+                  ),
+                ),
+              ),
             ..._markerListe.map((pk) {
               final erledigt = widget.heuteGeleertChecker(pk);
               final imRadius = _pos != null &&
@@ -478,24 +496,6 @@ class _KarteTabState extends State<_KarteTab>
                 ),
               );
             }),
-            // User-Standort als oberste Ebene (damit er immer sichtbar ist)
-            if (_pos != null)
-              Marker(
-                point: LatLng(_pos!.latitude, _pos!.longitude),
-                width: 25,
-                height: 25,
-                alignment: Alignment.center,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade600,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 3),
-                    boxShadow: const [
-                      BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))
-                    ],
-                  ),
-                ),
-              ),
           ],
         ),
       ],
